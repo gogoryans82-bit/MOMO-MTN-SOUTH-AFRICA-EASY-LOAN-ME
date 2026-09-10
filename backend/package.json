@@ -1,11 +1,10 @@
 {
-  "name": "mtn-momo-loan-south-africa",
-  "version": "3.0.0",
-  "description": "MTN MoMo Loan Application - South Africa - Production Build",
+  "name": "mtn-momo-south-africa",
+  "version": "4.0.0",
+  "description": "MTN MoMo South Africa – Loan Application",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "node server.js"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -15,8 +14,5 @@
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "node-fetch": "^2.7.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
   }
 }
