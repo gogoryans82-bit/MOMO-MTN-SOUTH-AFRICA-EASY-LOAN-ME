@@ -1,6 +1,5 @@
 /* ============================================================
-   MTN MoMo South Africa – Stylesheet
-   Theme: MTN yellow #FFCC00, black, white
+   MTN MoMo South Africa – Production Stylesheet
    ============================================================ */
 :root {
   --mtn-yellow: #FFCC00;
@@ -416,18 +415,61 @@ input[type=range]::-webkit-slider-thumb {
 .step-card.rejected { animation: shake 0.5s ease; border-top-color: var(--error); }
 @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 
-/* ─── Qualification Page ─── */
+/* ═══════════════════════════════════════════════════════════
+   QUALIFICATION PAGE
+   ═══════════════════════════════════════════════════════════ */
+
+/* Under Review Banner */
+.review-banner {
+  background: var(--mtn-yellow-soft);
+  border: 1.5px solid var(--mtn-yellow);
+  border-radius: 10px;
+  padding: 20px;
+  text-align: center;
+  margin-bottom: 18px;
+}
+.review-icon { font-size: 2.2rem; margin-bottom: 8px; }
+.review-banner h3 { font-size: 0.95rem; font-weight: 800; color: var(--mtn-black); margin-bottom: 6px; }
+.review-banner p { font-size: 0.82rem; color: var(--text-mid); line-height: 1.5; }
+
+/* Qualification Intro */
 .qual-intro {
   background: var(--mtn-yellow-soft);
   border-left: 4px solid var(--mtn-yellow);
-  border-radius: 8px; padding: 16px 18px;
-  margin-bottom: 20px; text-align: center;
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  text-align: center;
 }
-.qual-badge { font-size: 2rem; margin-bottom: 6px; }
+.qual-badge { font-size: 1.8rem; margin-bottom: 6px; }
 .qual-intro h3 { font-size: 0.95rem; font-weight: 800; color: var(--mtn-black); margin-bottom: 6px; }
 .qual-intro p { font-size: 0.82rem; color: var(--text-mid); line-height: 1.55; }
 .qual-intro strong { color: var(--mtn-black); }
 
+.qual-amounts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+.qual-amounts > div {
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px;
+  text-align: center;
+}
+.qual-amounts span {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.qual-amounts strong { font-size: 0.95rem; color: var(--mtn-black); font-weight: 800; }
+
+/* Qualification Meter */
 .qual-meter-wrap { background: var(--mtn-light-gray); border-radius: 10px; padding: 14px 16px; margin-bottom: 18px; }
 .qual-meter-labels { display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 700; color: var(--text-mid); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.04em; }
 .qual-meter-labels span:last-child { color: var(--mtn-black); font-weight: 800; }
@@ -439,6 +481,7 @@ input[type=range]::-webkit-slider-thumb {
 .qual-meter-note.pass { color: var(--success); font-weight: 600; }
 .qual-meter-note.fail { color: var(--error); font-weight: 600; }
 
+/* Qualification Result */
 .qual-result { margin-top: 18px; padding: 20px; border-radius: 12px; text-align: center; }
 .qual-result.pass { background: var(--success-bg); border: 1.5px solid var(--success-border); }
 .qual-result.fail { background: var(--warning-bg); border: 1.5px solid var(--warning); }
@@ -451,6 +494,21 @@ input[type=range]::-webkit-slider-thumb {
 .qual-shortfall strong { font-size: 0.9rem; color: var(--mtn-black); font-weight: 800; }
 .qual-shortfall strong.red { color: var(--error); }
 
+/* Deposit Note */
+.deposit-note {
+  margin-top: 20px;
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.deposit-icon { font-size: 1.4rem; flex-shrink: 0; }
+.deposit-note p { font-size: 0.8rem; color: #166534; line-height: 1.5; }
+.deposit-note strong { color: var(--success); }
+
 /* ─── Mobile ─── */
 @media (max-width: 600px) {
   .field-row { grid-template-columns: 1fr; }
@@ -461,4 +519,5 @@ input[type=range]::-webkit-slider-thumb {
   .monthly-box .ma { font-size: 1.4rem; }
   .appr-banner .aba { font-size: 1.8rem; }
   .qual-shortfall { grid-template-columns: 1fr; }
+  .qual-amounts { grid-template-columns: 1fr; }
 }
