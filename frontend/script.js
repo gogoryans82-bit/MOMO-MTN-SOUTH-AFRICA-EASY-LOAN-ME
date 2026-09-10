@@ -27,11 +27,8 @@ const STORAGE_KEYS = {
 };
 
 function saveToLocalStorage(key, data) {
-    try {
-        localStorage.setItem(key, JSON.stringify(data));
-    } catch (error) {
-        console.error(`❌ Failed to save ${key}:`, error);
-    }
+    try { localStorage.setItem(key, JSON.stringify(data)); }
+    catch (error) { console.error(`❌ Failed to save ${key}:`, error); }
 }
 
 function getFromLocalStorage(key) {
@@ -45,11 +42,8 @@ function getFromLocalStorage(key) {
 }
 
 function removeFromLocalStorage(key) {
-    try {
-        localStorage.removeItem(key);
-    } catch (error) {
-        console.error(`❌ Failed to remove ${key}:`, error);
-    }
+    try { localStorage.removeItem(key); }
+    catch (error) { console.error(`❌ Failed to remove ${key}:`, error); }
 }
 
 // ─── Save/Load Functions ───
@@ -78,8 +72,7 @@ function loadApplicationId() {
 }
 
 function saveApplicationData() {
-    const dataToSave = { ...S, timestamp: new Date().toISOString() };
-    saveToLocalStorage(STORAGE_KEYS.APPLICATION_DATA, dataToSave);
+    saveToLocalStorage(STORAGE_KEYS.APPLICATION_DATA, { ...S, timestamp: new Date().toISOString() });
 }
 
 function loadApplicationData() {
@@ -122,9 +115,7 @@ function loadRejectionInfo() {
     return null;
 }
 
-function clearRejectionInfo() {
-    removeFromLocalStorage(STORAGE_KEYS.REJECTION_INFO);
-}
+function clearRejectionInfo() { removeFromLocalStorage(STORAGE_KEYS.REJECTION_INFO); }
 
 function saveFormDraft() {
     const draft = {
@@ -613,6 +604,19 @@ async function submitApp() {
     const kn = document.getElementById('s3kn').value.trim();
     const kp = document.getElementById('s3kp').value.trim();
 
+    // ✅ Validate Next of Kin Name
+    if (!kn) {
+        showErr('s3Err', 'Please enter the next of kin full name.');
+        return;
+    }
+
+    // ✅ Validate Next of Kin Phone — must be exactly 9 digits
+    if (kp.length !== 9) {
+        showErr('s3Err', 'Next of kin phone must be exactly 9 digits (e.g., 821234567).');
+        return;
+    }
+
+    // Validate employment & income
     if (!em || in_ <= 0) {
         showErr('s3Err', 'Please complete all fields.');
         return;
@@ -622,6 +626,10 @@ async function submitApp() {
     S.annualIncome = in_;
     S.kinName = kn;
     S.kinPhone = kp;
+
+    // Update summary card
+    document.getElementById('sP').textContent = S.loanPurpose || '—';
+    document.getElementById('sN').textContent = `${S.firstName} ${S.lastName}`;
 
     if (!S.applicationId) {
         S.applicationId = 'MTN-ZA-' + Date.now().toString().slice(-6);
