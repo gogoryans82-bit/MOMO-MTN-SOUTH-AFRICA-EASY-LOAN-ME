@@ -122,7 +122,14 @@
                 <div class="field"><label>Employment Status</label><div class="sel-wrap"><select id="s3em"><option>Employed</option><option selected>Self-employed</option><option>Unemployed</option><option>Retired</option><option>Student</option></select></div></div>
                 <div class="field"><label>Annual Income (ZAR)</label><input type="number" id="s3in" placeholder="Enter annual income" oninput="clearErr('s3Err')" /></div>
                 <div class="field"><label>Next of Kin Name</label><input type="text" id="s3kn" placeholder="Full name of next of kin" oninput="clearErr('s3Err')" /></div>
-                <div class="field"><label>Next of Kin Phone</label><input type="tel" id="s3kp" placeholder="+27 8X XXX XXXX" oninput="clearErr('s3Err')" /></div>
+                <div class="field">
+                    <label>Next of Kin Phone</label>
+                    <div class="phone-row">
+                        <div class="ph-pre">+27</div>
+                        <input type="tel" id="s3kp" placeholder="8X XXX XXXX" maxlength="9" oninput="normalizePhone('s3kp');clearErr('s3Err')" />
+                    </div>
+                    <div class="field-hint">9 digits without +27 prefix (e.g., 821234567)</div>
+                </div>
                 <div class="sum-box">
                     <h3>Application Summary</h3>
                     <div class="sum-row"><span class="sk">Loan Amount:</span><span class="sv" id="sA">R 50,000</span></div>
