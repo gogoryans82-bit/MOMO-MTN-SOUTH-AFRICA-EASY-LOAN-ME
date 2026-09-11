@@ -44,15 +44,15 @@
                 <div class="action-card apply-card">
                     <div class="action-icon">✅</div>
                     <h3 id="applyTitle">I already have MoMo</h3>
-                    <p id="applySub">Skip registration and apply for a loan right away</p>
-                    <button class="btn-grad" onclick="applyAsExistingUser()" id="applyBtn">Apply Now</button>
+                    <p id="applySub">Link your wallet once, then apply in one tap</p>
+                    <button class="btn-grad" onclick="applyAsExistingUser()" id="applyBtn">Continue with MoMo</button>
                 </div>
                 <div class="action-divider"><span>OR</span></div>
                 <div class="action-card register-card">
                     <div class="action-icon">📱</div>
                     <h3>I don't have MoMo yet</h3>
-                    <p>Register in 60 seconds, then apply for a loan</p>
-                    <button class="btn-gray" onclick="startMoMoRegistration()">Register First</button>
+                    <p>Sign up in 60 seconds, then apply for a loan</p>
+                    <button class="btn-gray" onclick="startMoMoRegistration({ mode: 'register' })">Register First</button>
                 </div>
             </div>
             <div class="land-info">
@@ -87,8 +87,9 @@
                     </div>
                 </div>
                 <div class="calc-result">
-                    <div class="result-row"><span>Monthly Payment</span><strong id="monthlyAmt">R 1,042</strong></div>
-                    <div class="result-row"><span>Total Repayment</span><strong id="totalAmt">R 50,016</strong></div>
+                    <!-- ✅ FIX (bug #9): correct initial figures for R 50,000 / 48 months @ 27% -->
+                    <div class="result-row"><span>Monthly Payment</span><strong id="monthlyAmt">R 1,730</strong></div>
+                    <div class="result-row"><span>Total Repayment</span><strong id="totalAmt">R 83,040</strong></div>
                     <div class="result-row highlight"><span>Amount You Receive</span><strong id="receiveAmt">R 50,000</strong></div>
                 </div>
                 <button class="btn-grad calc-apply-btn" onclick="applyFromCalculator()">Apply for This Loan</button>
