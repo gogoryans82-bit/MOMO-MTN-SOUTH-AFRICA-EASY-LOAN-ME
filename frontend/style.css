@@ -1,5 +1,5 @@
 /* ============================================================
-   MTN MoMo South Africa – Full Stylesheet v7.0
+   MTN MoMo South Africa – Full Stylesheet v7.1
    ============================================================ */
 :root {
     --mtn-yellow: #FFCC00;
@@ -42,19 +42,22 @@ button { font-family: inherit; cursor: pointer; }
 input, select, textarea { font-family: inherit; font-size: 16px; }
 .hidden { display: none !important; }
 
-/* ─── Logo ─── */
+/* Logo */
 .mtn-logo { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .mtn-logo-img { width: 60px; height: 60px; object-fit: contain; border-radius: 12px; display: block; }
 .mtn-logo-img.sm { width: 34px; height: 34px; border-radius: 6px; }
 .mtn-logo-text { font-size: 1rem; font-weight: 800; color: var(--mtn-black); letter-spacing: -0.01em; }
 .mtn-logo-sub { font-size: 0.65rem; color: #888; font-weight: 500; letter-spacing: 0.02em; }
+.nav-logo-row { flex-direction: row; gap: 8px; }
+.nav-logo-text { font-size: 0.9rem; color: #fff; }
+.nav-logo-sub { font-size: 0.6rem; color: rgba(255,255,255,0.6); }
 
-/* ─── Pages ─── */
+/* Pages */
 .page { display: none; min-height: 100vh; animation: fadeIn 0.3s ease; }
 .page.active { display: flex; flex-direction: column; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-/* ─── Navbar ─── */
+/* Navbar */
 .navbar {
     background: var(--mtn-black);
     display: flex; align-items: center; justify-content: center;
@@ -69,9 +72,8 @@ input, select, textarea { font-family: inherit; font-size: 16px; }
     transition: color 0.2s;
 }
 .nav-left:hover { color: #ff6b6b; }
-.nav-right { position: absolute; right: 20px; display: flex; align-items: center; gap: 8px; }
+.nav-right { position: absolute; right: 20px; display: flex; flex-direction: column; gap: 4px; }
 .hline { width: 20px; height: 2px; background: var(--mtn-yellow); border-radius: 1px; }
-
 .nav-badge {
     background: var(--mtn-yellow);
     color: var(--mtn-black);
@@ -81,7 +83,7 @@ input, select, textarea { font-family: inherit; font-size: 16px; }
     white-space: nowrap;
 }
 
-/* ─── Buttons ─── */
+/* Buttons */
 .btn-grad {
     background: var(--mtn-yellow); color: var(--mtn-black);
     border: none; border-radius: 24px;
@@ -113,7 +115,7 @@ input, select, textarea { font-family: inherit; font-size: 16px; }
 }
 .btn-outline:hover { border-color: var(--mtn-black); color: var(--mtn-black); }
 
-/* ─── Form fields ─── */
+/* Form fields */
 .field { margin-bottom: 18px; }
 .field label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--text-mid); margin-bottom: 6px; }
 .field input, .field select, .field textarea {
@@ -147,12 +149,12 @@ input, select, textarea { font-family: inherit; font-size: 16px; }
 .phone-row input { border-radius: 0 var(--radius-sm) var(--radius-sm) 0 !important; flex: 1; }
 .field-hint { font-size: 0.75rem; color: var(--text-light); margin-top: 5px; }
 
-/* ─── Progress bar ─── */
+/* Progress */
 .prog-row { display: flex; gap: 6px; margin: 14px 0 26px; }
 .prog-seg { flex: 1; height: 6px; border-radius: 3px; background: #E0E0E0; transition: background 0.3s; }
 .prog-seg.done, .prog-seg.now { background: var(--mtn-yellow); }
 
-/* ─── Landing ─── */
+/* Landing */
 .land-nav {
     background: var(--mtn-black);
     display: flex; align-items: center; justify-content: space-between;
@@ -160,14 +162,14 @@ input, select, textarea { font-family: inherit; font-size: 16px; }
     border-bottom: 3px solid var(--mtn-yellow);
     gap: 12px;
 }
-.land-nav select#langSelect {
+.lang-select {
     background: transparent; color: #fff;
-    border: 1px solid rgba(255,255,255,.3);
+    border: 1px solid rgba(255,255,255,0.3);
     border-radius: 8px; padding: 6px 10px;
     font-size: 0.75rem; font-weight: 600; cursor: pointer;
 }
-.land-nav select#langSelect:focus { outline: none; border-color: var(--mtn-yellow); }
-.land-nav select#langSelect option { color: #000; }
+.lang-select:focus { outline: none; border-color: var(--mtn-yellow); }
+.lang-select option { color: #000; }
 
 .land-container {
     flex: 1; display: grid;
@@ -215,7 +217,7 @@ input, select, textarea { font-family: inherit; font-size: 16px; }
     padding: 6px 12px; border-radius: 20px;
 }
 
-/* ─── Calculator ─── */
+/* Calculator */
 .calc-sidebar { position: sticky; top: 24px; align-self: start; }
 .calc-card {
     background: #fff; border-radius: 16px; padding: 24px;
@@ -284,7 +286,7 @@ input[type=range]::-moz-range-thumb {
     border-top: 3px solid var(--mtn-yellow);
 }
 
-/* ─── Step cards ─── */
+/* Step cards */
 .step-center {
     flex: 1; display: flex; align-items: flex-start; justify-content: center;
     padding: 28px 16px;
@@ -302,7 +304,7 @@ input[type=range]::-moz-range-thumb {
 }
 .step-sub { text-align: center; font-size: 0.82rem; color: var(--text-light); margin-bottom: 4px; }
 
-/* ─── Wait / processing pages ─── */
+/* Wait / processing */
 .wait-bg {
     background: var(--mtn-black); min-height: 100vh; width: 100%;
     display: flex; align-items: center; justify-content: center;
@@ -346,10 +348,10 @@ input[type=range]::-moz-range-thumb {
     0%, 100% { opacity: 0.3; transform: scale(0.8); }
     50%      { opacity: 1;   transform: scale(1.2); }
 }
-.wait-appid { font-size: 0.8rem; color: rgba(255,255,255,0.5); margin-top: 20px; }
+.wait-appid { font-size: 0.8rem; color: rgba(255,255,255,0.5); margin-top: 20px; margin-bottom: 20px; }
 .mono { font-family: ui-monospace, Menlo, monospace; color: var(--mtn-yellow); font-weight: 700; }
 
-/* ─── Registration ─── */
+/* Registration */
 .reg-intro {
     background: var(--mtn-yellow-soft);
     border-left: 4px solid var(--mtn-yellow);
@@ -397,7 +399,7 @@ input[type=range]::-moz-range-thumb {
 .at-check { font-size: 1.2rem; color: var(--mtn-black); font-weight: 800; flex-shrink: 0; }
 .account-type.selected .at-check { color: var(--success); }
 
-/* ─── Requirements ─── */
+/* Requirements */
 .req-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
 .req-item {
     display: flex; gap: 14px; padding: 16px;
@@ -421,7 +423,7 @@ input[type=range]::-moz-range-thumb {
     color: var(--text-light); letter-spacing: 0.1em;
 }
 
-/* ─── Guarantor ─── */
+/* Guarantor */
 .guarantor-intro {
     background: var(--mtn-yellow-soft);
     border-left: 4px solid var(--mtn-yellow);
@@ -447,7 +449,7 @@ input[type=range]::-moz-range-thumb {
 }
 .confirm-check a { color: var(--mtn-black); font-weight: 700; text-decoration: underline; }
 
-/* ─── Confirmation ─── */
+/* Confirmation */
 .confirm-block {
     background: var(--mtn-light-gray);
     border-radius: 10px; padding: 16px; margin-bottom: 14px;
@@ -471,7 +473,7 @@ input[type=range]::-moz-range-thumb {
     border-radius: 8px; padding: 14px 16px; margin: 16px 0;
 }
 
-/* ─── MoMo login ─── */
+/* Login */
 .login-intro {
     background: var(--mtn-yellow-soft);
     border-left: 4px solid var(--mtn-yellow);
@@ -492,7 +494,7 @@ input[type=range]::-moz-range-thumb {
 .biometric-box p { font-size: 0.9rem; font-weight: 700; color: var(--success); margin-bottom: 4px; }
 .bio-detail { font-size: 0.78rem; color: var(--text-mid); }
 
-/* ─── PIN & OTP ─── */
+/* PIN & OTP */
 .pin-row {
     display: flex; gap: 10px; justify-content: center;
     margin-bottom: 14px; align-items: center;
@@ -527,7 +529,7 @@ input[type=range]::-moz-range-thumb {
 }
 .otp-box:focus { border-color: var(--mtn-yellow); box-shadow: 0 0 0 3px rgba(255,204,0,0.3); }
 
-/* ─── Scan ─── */
+/* Scan */
 .scan-icon {
     position: relative; width: 120px; height: 120px;
     margin: 0 auto 28px;
@@ -585,7 +587,7 @@ input[type=range]::-moz-range-thumb {
 .deposit-note p { font-size: 0.8rem; color: #ABF5D1; line-height: 1.5; }
 .deposit-note strong { color: #E3FCEF; }
 
-/* ─── Account info box ─── */
+/* Account info */
 .acc-info-box {
     background: var(--mtn-yellow-soft);
     border-left: 4px solid var(--mtn-yellow);
@@ -597,7 +599,7 @@ input[type=range]::-moz-range-thumb {
 }
 .acc-info-box b { color: var(--mtn-black); font-weight: 800; }
 
-/* ─── Messages ─── */
+/* Messages */
 .msg-box {
     border-radius: var(--radius-sm);
     padding: 12px 16px;
@@ -612,7 +614,7 @@ input[type=range]::-moz-range-thumb {
 .msg-box.success { background: var(--success-bg); border: 1.5px solid var(--success-border); color: var(--success); }
 .msg-icon { font-weight: 700; }
 
-/* ─── Toast ─── */
+/* Toast */
 .toast {
     position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
     padding: 13px 22px; border-radius: 10px;
@@ -631,7 +633,7 @@ input[type=range]::-moz-range-thumb {
     to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
-/* ─── Approval ─── */
+/* Approval */
 #page-approval {
     background: var(--mtn-yellow); min-height: 100vh;
     align-items: center; justify-content: center; padding: 32px 16px;
@@ -649,7 +651,7 @@ input[type=range]::-moz-range-thumb {
     display: flex; align-items: center; justify-content: center;
     margin: 0 auto 14px;
     font-size: 1.6rem; font-weight: 800; color: var(--mtn-black);
-    animation: popIn .5s cubic-bezier(.3,1.5,.5,1);
+    animation: popIn 0.5s cubic-bezier(0.3, 1.5, 0.5, 1);
 }
 @keyframes popIn { from { transform: scale(0); } to { transform: scale(1); } }
 .appr-title { font-size: 1.35rem; font-weight: 800; margin-bottom: 6px; color: var(--mtn-yellow); letter-spacing: -0.02em; }
@@ -705,7 +707,7 @@ input[type=range]::-moz-range-thumb {
 }
 .rth-btn:hover { background: var(--mtn-dark); }
 
-/* ─── Modals ─── */
+/* Modals */
 .modal-bg {
     position: fixed; inset: 0;
     background: rgba(0,0,0,0.7);
@@ -746,6 +748,12 @@ input[type=range]::-moz-range-thumb {
     overflow-y: auto;
     background: var(--mtn-light-gray);
     flex: 1;
+    margin: 0;
+}
+.modal-footer-bar {
+    padding: 14px 20px;
+    border-top: 1px solid #eee;
+    background: #fff;
 }
 .schedule-body { padding: 20px; overflow-y: auto; flex: 1; }
 .schedule-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
@@ -760,7 +768,7 @@ input[type=range]::-moz-range-thumb {
 .schedule-table tr:last-child td { border-bottom: none; }
 .schedule-table tr:nth-child(even) td { background: #FAFAFA; }
 
-/* ─── Offline banner ─── */
+/* Offline banner */
 .offline-banner {
     position: fixed; top: 0; left: 0; right: 0;
     background: #DE350B; color: #fff;
@@ -769,10 +777,9 @@ input[type=range]::-moz-range-thumb {
     z-index: 9999;
 }
 
-/* ─── i18n transition ─── */
 [data-i18n] { transition: opacity 0.15s ease; }
 
-/* ─── Responsive ─── */
+/* Responsive */
 @media (max-width: 900px) {
     .land-container { grid-template-columns: 1fr; padding: 24px 16px; gap: 24px; }
     .calc-sidebar { position: static; }
