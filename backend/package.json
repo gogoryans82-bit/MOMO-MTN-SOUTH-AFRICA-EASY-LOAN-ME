@@ -1,18 +1,25 @@
 {
-  "name": "mtn-momo-south-africa",
-  "version": "4.0.0",
-  "description": "MTN MoMo South Africa – Loan Application",
-  "main": "server.js",
+  "name": "mtn-momo-sa-loans",
+  "version": "6.5.0",
+  "private": true,
+  "main": "backend/server.js",
   "scripts": {
-    "start": "node server.js"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "start": "node backend/server.js",
+    "dev": "nodemon backend/server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
+    "compression": "^1.7.4",
+    "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "node-fetch": "^2.7.0"
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "node-fetch": "^2.7.0",
+    "pdfkit": "^0.15.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
   }
 }
