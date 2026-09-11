@@ -2,6 +2,38 @@
 // script.js – MTN MoMo South Africa
 // New flow: two paths + requirements + guarantor
 // ============================================================
+// ─── Account Types (mirrors backend) ───
+const ACCOUNT_TYPES = {
+    yello: {
+        name: 'MoMo Yello',
+        icon: '🟡',
+        dailyCash: 3500,
+        monthlyCap: 20000,
+        maxLoan: 20000,
+        minLoan: 5000,
+        requiresId: true
+    },
+    yello_plus: {
+        name: 'MoMo Yello Plus',
+        icon: '⭐',
+        dailyCash: 10000,
+        monthlyCap: 40000,
+        maxLoan: 40000,
+        minLoan: 5000,
+        requiresId: true
+    },
+    eazi: {
+        name: 'MoMo Eazi',
+        icon: '⚡',
+        dailyCash: 2000,
+        monthlyCap: 10000,
+        maxLoan: 10000,
+        minLoan: 5000,
+        requiresId: false
+    }
+};
+
+
 'use strict';
 
 const S = {
